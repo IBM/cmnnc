@@ -130,28 +130,3 @@ def conv2d_mxv(image, filters, conv_params):
             output[:,oh,ow] = res
     return output
 
-import unittest
-
-class TestConv(unittest.TestCase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # same parameters as CIFAR's first convolution
-        conv_ps = self.conv_ps = ConvParams(
-            i = ConvInParams(w=32, h=32, d=3),
-            f = ConvFiltParams(w=3, h=3, d=3, l=16),
-            p = 1,
-            s = 1,
-            p_out = 0
-        )
-
-        # Initalize random filtrs and image
-        self.filters = np.random.rand(*conv_ps.get_filters_shape())
-        self.image   = np.random.rand(*conv_ps.get_image_shape())
-        self.image   = np.pad(self.image, conv_ps.get_padding())
-
-    def test_mxv(self):
-        """ Test MxV and simple versions of CONV 2D """
-        output_simple = conv2d_simple(self.image, self.filters, self.conv_ps)
-        output_mxv = conv2d_mxv(self.image, self.filters, self.conv_ps)
-        np.testing.assert_allclose(output_simple, output_mxv)
