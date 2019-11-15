@@ -17,6 +17,9 @@ def check_type(v, ty, n=""):
 
 @dc.dataclass(init=False)
 class ConvInParams:
+    w: int
+    h: int
+    d: int
     """ Convolution input dimensions """
     def __init__(self, *, w, h, d):
         self.w = w
@@ -26,6 +29,10 @@ class ConvInParams:
 @dc.dataclass(init=False)
 class ConvFiltParams:
     """ Convolution filter dimensions """
+    w: int
+    h: int
+    d: int
+    l: int
     def __init__(self, *, w, h, d, l):
         self.w = w
         self.h = h
@@ -35,6 +42,9 @@ class ConvFiltParams:
 @dc.dataclass(init=False)
 class ConvOutParams:
     """ Convolution output dimensions """
+    w: int
+    h: int
+    d: int
     def __init__(self, *, w, h, d):
         self.w = w
         self.h = h
@@ -43,6 +53,7 @@ class ConvOutParams:
     def to_in(self):
         return ConvInParams(w=self.w, h=self.h, d=self.d)
 
+@dc.dataclass(init=False)
 class ConvParams:
     """ Convolution parameters """
     i: ConvInParams
@@ -66,6 +77,7 @@ class ConvParams:
         self.o = self.get_out_params()
         if self.i.d != self.f.d:
             raise ValueError("input d=%d and filter d=%d parameters do not match", (self.i.d, self.f.d))
+
 
     def get_in_shape(self):
         """ Get the input shape (including padding) as a (D,H,W) tuple """
@@ -129,4 +141,3 @@ def conv2d_mxv(image, filters, conv_params):
 
             output[:,oh,ow] = res
     return output
-
