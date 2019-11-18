@@ -7,11 +7,13 @@
 import unittest
 import numpy as np
 import onnx
+import onnx.numpy_helper
 import onnxruntime as onnxrt
 
 import conv
 from onnx_test_models import mk_conv as onnx_mk_conv
 from onnx_test_models import mk_conv_conv as onnx_mk_conv_conv
+import onnx_util
 
 def onnx_rand_in(model):
     """ Create random inputs for a given ONNX model """
@@ -57,7 +59,9 @@ class TestConv(unittest.TestCase):
         sess = onnxrt.InferenceSession('mymodel.onnx')
         out = sess.run(None, inp)
         image  = np.pad(inp["conv1.in"][0], self.conv_ps.get_padding())
-        filters = inp["conv1.ws"]
+        filters = onnx.numpy_helper.to_array(
+            onnx_util.get_init_data(onnx_model.graph, "conv1.ws")
+        )
         exp_out = conv.conv2d_mxv(image, filters, self.conv_ps)
         np.testing.assert_allclose(out[0][0], exp_out, rtol=1e-06)
 
@@ -93,8 +97,12 @@ class TestConvConv(unittest.TestCase):
         out = sess.run(None, inp)
 
         image  = np.pad(inp["conv1.in"][0], self.conv1_ps.get_padding())
-        filters1 = inp["conv1.ws"]
-        filters2 = inp["conv2.ws"]
+        filters1 = onnx.numpy_helper.to_array(
+            onnx_util.get_init_data(onnx_model.graph, "conv1.ws")
+        )
+        filters2 = onnx.numpy_helper.to_array(
+            onnx_util.get_init_data(onnx_model.graph, "conv2.ws")
+        )
 
         exp_out1 = conv.conv2d_mxv(image, filters1, self.conv1_ps)
         exp_out1 = np.pad(exp_out1, self.conv2_ps.get_padding())

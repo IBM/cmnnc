@@ -11,6 +11,11 @@ import conv
 
 # ONNX helpers
 
+def get_init_data(graph, name):
+    for init in graph.initializer:
+        if init.name == name:
+            return init
+
 def conv_params_from_onnx_node(graph, node):
     """ Create a ConvParams structure from an ONNX convolution node """
     if node.op_type != 'Conv':
