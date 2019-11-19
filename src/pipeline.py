@@ -234,18 +234,6 @@ class Stage:
     def get_rd_obj_name(self):
         return self.si.get_rd_obj_name()
 
-
-    @staticmethod
-    def idx_xform(idx):
-        # NB: Currently, iterators return an index since we are doing 1D
-        # operations in our tests. We convert them into tuples here. It might
-        # be worth re-checking this when we move to hihger dimensions, so that
-        # we can maybe eliminate it.
-        if type(idx) is int:
-            idx  = (idx,)
-        assert type(idx) is tuple
-        return idx
-
     def rel_a_iter(self, rel_iter):
 
         # Accesses iterators (si.rd_a, and si.wr_a) iterate the relation from
@@ -263,7 +251,6 @@ class Stage:
             except(ValueError):
                 print("%s: ri=%s cannot be packed into (idx,loc)" % (rel_iter.__name__, ri,))
                 raise
-            idx = self.idx_xform(idx)
             if idx == last_idx:
                 l.append(loc)
             else:
@@ -281,7 +268,6 @@ class Stage:
         # None loop, used when we do not have readers or writers
         def none_loop():
             for i in self.pymod.idx_iter():
-                i = self.idx_xform(i)
                 yield (i, None)
 
         # inp  is the id of the input (typically image) being processed
@@ -343,7 +329,6 @@ class Stage:
         # This is used to maintain proper ordering when we wrap-around
         for inp in itertools.count():
             for (write, max_iter) in self.pymod.loc_to_max_iter():
-                max_iter = self.idx_xform(max_iter)
                 while True:
                     new_write = yield
                     if new_write == write:
