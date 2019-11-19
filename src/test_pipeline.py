@@ -115,22 +115,108 @@ def test_conv2d():
 
     p = pl.Pipeline([stage1], objs, execute_ops=True)
 
+    # Set filters
     filters1 = np.random.rand(*conv1_ps.get_filters_shape())
-    image1 = np.random.rand(*conv1_ps.get_image_shape())
-    image1 = np.pad(image1, conv1_ps.get_padding())
-
-    output_simple = conv.conv2d_simple(image1, filters1, conv1_ps)
-    output_mxv = conv.conv2d_mxv(image1, filters1, conv1_ps)
-    np.testing.assert_allclose(output_simple, output_mxv)
-
     filters_m = filters1.reshape(conv1_ps.eval("(f.l, f.d*f.h*f.w)"))
     cconf = pl.CoreConf(filters_m)
 
+    # Set input
+    image1 = np.random.rand(*conv1_ps.get_image_shape())
+    image1 = np.pad(image1, conv1_ps.get_padding())
     vals1 = p.get_object('V1')
     vals1[...] = image1
+
+    # Configure pipeline
     p.configure([cconf])
 
+    # Execute piepline
     for _ in range(conv1_ps.o.h*conv1_ps.o.w):
         p.tick()
     vals2 = p.get_object('V2')
+
+    # Verify results
+    output_simple = conv.conv2d_simple(image1, filters1, conv1_ps)
+    output_mxv = conv.conv2d_mxv(image1, filters1, conv1_ps)
+    np.testing.assert_allclose(output_simple, output_mxv)
     np.testing.assert_array_equal(output_mxv, vals2)
+
+def test_conv2d_conv2d():
+    # How to deal with padding for intermediate results?
+    #  - the writes need to be mapped to the padded structure
+    #  - I guess the best place for this to happen, is in the receiving end
+    conv1_padding = 1
+    conv2_padding = 1
+
+    conv1_ps = conv.ConvParams(
+        i = conv.ConvInParams(w=32, h=32, d=3),
+        f = conv.ConvFiltParams(w=3, h=3, d=3, l=1),
+        p = conv1_padding,
+        p_out = conv2_padding,
+        s = 1)
+
+    conv2_ps = conv.ConvParams(
+        i = conv1_ps.o.to_in(),
+        f = conv.ConvFiltParams(w=3, h=3, d=conv1_ps.f.l, l=1),
+        p = conv2_padding,
+        p_out = 0,
+        s = 1)
+
+    s1_rdwr_a = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
+    print("S1\n R:\n%s\n W:\n%s\n" % s1_rdwr_a)
+    s2_rdwr_a = conv2_ps.get_rd_wr_a(s_id=2, vin_id=2, vout_id=3)
+
+    stage1 = pl.Stage(pl.StageInfo(
+        rd_a = s1_rdwr_a[0],
+        wr_a = s1_rdwr_a[1],
+    ))
+
+    stage2 = pl.Stage(pl.StageInfo(
+         rd_a = s2_rdwr_a[0],
+         wr_a = s2_rdwr_a[1],
+    ))
+
+    objs = {
+        'V1': conv1_ps.get_in_shape(),
+        'V2': conv2_ps.get_in_shape(),
+        'V3': conv2_ps.get_out_shape(),
+    }
+
+    p = pl.Pipeline([stage1,stage2], objs, execute_ops=True)
+
+    filters1 = np.random.rand(*conv1_ps.get_filters_shape())
+    filters_m1 = filters1.reshape(conv1_ps.eval("(f.l, f.d*f.h*f.w)"))
+    cconf1 = pl.CoreConf(filters_m1)
+
+    filters2 = np.random.rand(*conv2_ps.get_filters_shape())
+    filters_m2 = filters2.reshape(conv2_ps.eval("(f.l, f.d*f.h*f.w)"))
+    cconf2 = pl.CoreConf(filters_m2)
+
+    image = np.random.rand(*conv1_ps.get_image_shape())
+    image = np.pad(image, conv1_ps.get_padding())
+
+    p.configure([cconf1,cconf2])
+
+    vals1 = p.get_object('V1')
+    print("vals1.shape=%s image.shape=%s" % (vals1.shape,image.shape))
+    stage2.print_loc_to_max_iter()
+    pprint(objs)
+    vals1[...] = image
+
+    while True:
+        iters = p.tick()
+        print("*"*80)
+        for (s,i) in iters.items():
+            print("%s: %s" % (s, i))
+        print("*"*80)
+        # input()
+        if iters['S2'] == (0, conv2_ps.o.h - 1, conv2_ps.o.w - 1):
+            break
+
+    vals3 = p.get_object('V3')
+    pprint(vals3.shape)
+
+    output1 = conv.conv2d_simple(image, filters1, conv1_ps)
+    output1 = np.pad(output1, conv2_ps.get_padding())
+    output2 = conv.conv2d_simple(output1, filters2, conv2_ps)
+    np.testing.assert_allclose(output2, vals3)
+    print("DONE!")
