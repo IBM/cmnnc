@@ -12,8 +12,9 @@ import types
 import ast as pyast
 
 import numpy as np
+import astor as pyastor
 
-from isl_utils import isl_set_to_ast, isl2py_fn, isl_map_to_ast
+from isl_utils import isl_set_to_ast, isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
 import islpy as isl
 
 class StageInfo:
@@ -144,7 +145,7 @@ class Stage:
         """
         self.si = si
         self.param_vals = param_vals if param_vals is not None else dict()
-        self.print_ast_ = False
+        self.print_ast_ = True
         self.isl_rel_loc_to_max_iter = None
 
         self.max_iter = None   # Current max iteration
@@ -329,6 +330,12 @@ class Stage:
             print("w:%20s => max_iter:%s" % (write, max_i))
         print("<---------------")
 
+    def print_rd_a_iter(self):
+        print("-------> print_rd_a_iter for %s" % (self.get_name(),))
+        for (idx, rd_a) in self.pymod.rd_a_iter():
+            print("idx:%s => rd:%s" % (idx, rd_a))
+        print("<---------------")
+
     def max_iter_gen(self):
         """ Python generator that consumers writes and updates self.max_iter """
 
@@ -360,6 +367,8 @@ class Stage:
         # Write data (if a value exists)
         if wr_val is not None:
             self.core.write_obj(wr_obj, wr_idx, wr_val)
+        else:
+            self.core.validate_accesses(wr_obj, [wr_idx])
 
         # Initialize the max iteration generator, if it does not exist
         if self.max_iter_g is None:
@@ -389,7 +398,8 @@ class Stage:
                 assert wr_is is None or out.size == len(wr_is),"output size: %d (shape=%s) does not match number of indices: %d" % (out.size, out.shape, len(wr_is))
                 wr_vs = iter(out)
             else:
-                wr_vs = itertools.repeat(None, len(wr_is))
+                self.core.validate_accesses(self.rd_obj, rd_is if rd_is is not None else [])
+                wr_vs = itertools.repeat(None, len(wr_is)) if wr_is is not None else []
 
             if wr_is is not None:
                 for (wr_i,wr_v) in zip(wr_is, wr_vs):
@@ -436,6 +446,24 @@ class Core:
     def get_object(self, objname: str):
         return self.objs[objname]
 
+    def validate_accesses(self, objstr: str, idxs: typing.List[typing.Tuple[int,...]]):
+        """ Valdidate operations
+
+        Ensure that the reads are within the array bounds.
+        Will raise an error if that's not the case
+        """
+        # Perform the read and see if we get any out-of-bounds error
+        if objstr not in self.objs:
+            raise ValueError("object %s does not exist in this core" % (objstr,))
+        obj = self.objs[objstr]
+        for idx in idxs:
+            assert isinstance(idx, tuple) and len(idx) == len(obj.shape), "idx=%s obj.shape=%s" % (idx, obj.shape)
+            try:
+                _ = obj[idx]
+            except:
+                print("Failed to access %s (shape=%s) on %s" % (objstr, obj.shape, idx))
+                raise
+
     def execute_ops(self, rd_objstr: str, rd_is: typing.List[typing.Tuple[int,...]]) -> np.ndarray:
         """ execute operations
 
@@ -457,7 +485,7 @@ class Core:
             assert isinstance(idx, tuple) and len(idx) == len(rd_obj.shape), "idx=%s rd_obj.shape=%s" % (idx, rd_obj.shape)
             x[i] = rd_obj[idx]
 
-        y = np.matmul(self.xbar_m,x)
+        y = np.matmul(self.xbar_m, x)
         return y
 
     def write_obj(self, objname: str, w_idx, w_val):
