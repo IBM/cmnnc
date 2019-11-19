@@ -18,33 +18,9 @@ onnx graph
 
 # Steps
  ✓ move weights into initializer for generated onnx models
+ - add a check that we do not overwrite something before it is read, and a
+   corresponding failing test case
 
 # Issues
  - batching: CONV operator's first dimension is batch size
  - multiple input nodes (residuals)
-
- # Multiple input nodes (residuals)
-
- Let's consider:
-
- ```
- CONV1D ---> CONV1D ---> ADD
-         |           ^
-         |           |
-         +---------- +
-```
-
-Partition P1:
- - CONV1D
-    - INPUT:  X
-    - OUTPUT: Y, Z1
-
-Partition P2:
- - CONV1D
-    - INPUT:  Yl
-    - OUTPUT: Z2
- - ADD:
-    - INPUT: Z1, Z2
-    - OUTPUT: W
-
-

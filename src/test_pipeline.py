@@ -5,7 +5,11 @@
 # vim: set expandtab softtabstop=4 tabstop=4 shiftwidth=4:
 
 from pprint import pprint
+import dataclasses as dc
+import typing
+
 import numpy as np
+import islpy as isl
 
 import pipeline as pl
 import conv
@@ -141,9 +145,6 @@ def test_conv2d():
     np.testing.assert_array_equal(output_mxv, vals2)
 
 def test_conv2d_conv2d():
-    # How to deal with padding for intermediate results?
-    #  - the writes need to be mapped to the padded structure
-    #  - I guess the best place for this to happen, is in the receiving end
     conv1_padding = 1
     conv2_padding = 1
 
@@ -220,3 +221,125 @@ def test_conv2d_conv2d():
     output2 = conv.conv2d_simple(output1, filters2, conv2_ps)
     np.testing.assert_allclose(output2, vals3)
     print("DONE!")
+
+class xdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+def str_to_isl_map(x: str) -> isl.Map:
+    try:
+        return isl.Map(x)
+    except:
+        print("Failed to create an isl.Map from %s" % (x,))
+        raise
+
+@dc.dataclass(init=False)
+class OpInfo:
+    """ Operation (polyhedral) info.
+
+    A list of Instace space -> object access, per object for reads and writes
+    """
+    oi_rds: typing.List[isl.Map]
+    oi_wrs: typing.List[isl.Map]
+
+    def __init__(self, op_name: str):
+        self.oi_rds = []
+        self.oi_wrs = []
+        self.op_name = op_name
+
+    def add_rd_a(self, rel):
+        """ Add a read access relation for MxV """
+        if isinstance(rel, str):
+            rel = str_to_isl_map(rel)
+        self.oi_rds.append(rel)
+        return self
+
+    def add_wr_a(self, rel):
+        """ Add a write access relation for MxV """
+        if isinstance(rel, str):
+            rel = str_to_isl_map(rel)
+        self.oi_wrs.append(rel)
+        return self
+
+@dc.dataclass(init=False)
+class StageInfo:
+    """ Polyhedral information for a stage
+
+    The idea here is that we are able to express the code for every stage in a
+    fused loop as follows:
+      for i in ...
+          for j in ...
+              ....
+                  MxV()
+                  DPU_INS1()
+                  DPU_INS2()
+                  ....
+
+    Each operation (MXV, DPU_INS) has a bunch of read/write accesses to objects
+    that are represented by the polyhedral information.
+    """
+    mxv_i: OpInfo
+    dpu_i: typing.List[OpInfo]
+
+    def __init__(self):
+        self.mxv_i = OpInfo("MxV")
+        self.dpu_i = []
+
+def test_residual_1d():
+    #  CONV1D ---> CONV1D ---> ADD
+    #          |           ^
+    #          |           |
+    #          +---------- +
+    #
+    #
+    # Stage S1:
+    #  - MxV (CONV1D)
+    #     - PARAMS: P1, F1
+    #     - INPUT:  IN
+    #     - OUTPUT: O1, O2
+    #
+    # Stage S2:
+    #  - MxV (CONV1D)
+    #     - PARAMS: P2, F2
+    #     - INPUT:  O1
+    #     - OUTPUT: O3 (internal)
+    #  - ADD:
+    #     - INPUT: O2, O3 (internal)
+    #     - OUTPUT: OUT
+    #
+    params = {}
+    def params_compute(p, expr):
+        params[p] = eval(expr, None, params)
+
+    # IN: input size (w/o padding)
+    # F1: filter size
+    # P1: padding
+    params = { 'IN': 10, 'F1': 3, 'P1': 1, 'S1': 1}
+    # O1: output 1 size
+    params_compute("O1",  "(IN - F1 + 2*P1) // S1 + 1")
+    params_compute("O2",  "O1")
+    #
+    params.update({'F2': 3, 'P2': 1, 'S2': 1})
+    params_compute("O3",  "(O1 - F2 + 2*P2) // S2 + 1")
+
+    s1 = StageInfo()
+    s1.mxv_i.add_rd_a("{{ S1[s1] -> IN[i1]: 0 <= s1 <= {O1} and  s1 <= i1 < s1 + {F1} }}".format(**params))
+    s1.mxv_i.add_wr_a("{{ S1[s1] -> O1[o1] : o1 = s1 + {P2} }}".format(**params))
+    s1.mxv_i.add_wr_a("{{ S1[s1] -> O2[o2] : o2 = s1 }}".format(**params))
+
+
+    # NB: we do not track the writes and reads on O3, because it's local (within a single stage)
+    s2 = StageInfo()
+    s2.mxv_i.add_rd_a("{{ S2[s2] -> O1[o1] : 0 <= s2 <= {O3} and s2 <= o1 < s2 + {F2}}}".format(**params))
+    add_info = OpInfo("ADD")
+    add_info.add_rd_a("{{ S2[s2] -> O2[o2] : o2 = s2 }}".format(**params))
+    add_info.add_wr_a("{{ S2[s2] -> OUT[out] : out = s2 }}".format(**params))
+    s2.dpu_i.append(add_info)
+
+    return
+
+
+if __name__ == '__main__':
+    a = test_residual_1d()
