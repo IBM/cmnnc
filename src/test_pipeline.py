@@ -14,19 +14,19 @@ import islpy as isl
 import pipeline as pl
 import conv
 
+RD_a = pl.IslAccess.RD
+WR_a = pl.IslAccess.WR
 
 def test_mxv():
     params = {'n': 128 }
 
-    # read access relation (vector x)
-    rd_a = "{{ S[i] -> x[j] : i = 0 and 0 <= j < {n} }}".format(**params)
-    # write access relation (vector y)
-    wr_a = "{{ S[i] -> y[j] : i = 0 and 0 <= j < {n} }}".format(**params)
-    # Define a stage based on the above relations
-    stage = pl.Stage(pl.StageInfo(
-        rd_a = rd_a,
-        wr_a = wr_a,
-    ))
+    s_ops = [
+        pl.OpInfo("MxV", [
+            RD_a("{{ S[i] -> x[j] : i = 0 and 0 <= j < {n} }}".format(**params)),
+            WR_a("{{ S[i] -> y[j] : i = 0 and 0 <= j < {n} }}".format(**params)),
+        ])
+    ]
+    stage = pl.Stage(pl.StageInfo(s_ops))
 
     # Objects
     objs = {
@@ -76,15 +76,29 @@ def test_conv1d():
     # P: padding
     eg_vals = {'n': 10, 'k': 3, 'p': 1}
 
-    stage1 = pl.Stage(pl.StageInfo(
-        rd_a = "[n,k,p] -> { S1[o1] -> in1[j] : 0 <= o1 < ((n - k + 2*p) + 1) and o1 <= j < o1 + k }",
-        wr_a = "[n,k,p] -> { S1[o1] -> in2[j] : 0 <= o1 < ((n - k + 2*p) + 1) and j = o1 + p}"
-    ), eg_vals)
+    s1_ops = [
+        pl.OpInfo("MxV", [
+            RD_a("[n,k,p] -> { S1[o1] -> in1[j] : 0 <= o1 < ((n - k + 2*p) + 1) and o1 <= j < o1 + k }"),
+            WR_a("[n,k,p] -> { S1[o1] -> in2[j] : 0 <= o1 < ((n - k + 2*p) + 1) and j = o1 + p}"),
+        ]),
+    ]
+    stage1 = pl.Stage(pl.StageInfo(s1_ops), eg_vals)
+    # stage1 = pl.Stage(pl.StageInfo(
+    #     rd_a = "[n,k,p] -> { S1[o1] -> in1[j] : 0 <= o1 < ((n - k + 2*p) + 1) and o1 <= j < o1 + k }",
+    #     wr_a = "[n,k,p] -> { S1[o1] -> in2[j] : 0 <= o1 < ((n - k + 2*p) + 1) and j = o1 + p}"
+    # ), eg_vals)
 
 
-    stage2 = pl.Stage(pl.StageInfo(
-        rd_a = "[n,k,p] -> { S2[o2] -> in2[j] : 0 <= o2 < (n-k+2*p) and  o2 <= j < o2 + k }"
-    ), eg_vals)
+    s2_ops = [
+        pl.OpInfo("MxV", [
+            RD_a("[n,k,p] -> { S2[o2] -> in2[j] : 0 <= o2 < (n-k+2*p) and  o2 <= j < o2 + k }"),
+        ]),
+    ]
+    stage2 = pl.Stage(pl.StageInfo(s2_ops), eg_vals)
+
+    # stage2 = pl.Stage(pl.StageInfo(
+    #     rd_a = "[n,k,p] -> { S2[o2] -> in2[j] : 0 <= o2 < (n-k+2*p) and  o2 <= j < o2 + k }"
+    # ), eg_vals)
 
     objects = {
         'in1': eval("(n + 2*p,)", eg_vals),
@@ -106,11 +120,11 @@ def test_conv2d():
         s = 1,
         p_out = 0)
 
-    s1_rdwr_a = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
-    stage1 = pl.Stage(pl.StageInfo(
-        rd_a = s1_rdwr_a[0],
-        wr_a = s1_rdwr_a[1],
-    ))
+    (s1_rd_a, s1_wr_a) = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
+    s1_ops = [
+        pl.OpInfo("MxV", [ RD_a(s1_rd_a), WR_a(s1_wr_a) ]),
+    ]
+    stage1 = pl.Stage(pl.StageInfo(s1_ops))
 
     objs = {
         'V1': conv1_ps.get_in_shape(),
@@ -162,19 +176,14 @@ def test_conv2d_conv2d():
         p_out = 0,
         s = 1)
 
-    s1_rdwr_a = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
-    print("S1\n R:\n%s\n W:\n%s\n" % s1_rdwr_a)
-    s2_rdwr_a = conv2_ps.get_rd_wr_a(s_id=2, vin_id=2, vout_id=3)
+    (s1_rd_a, s1_wr_a) = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
+    (s2_rd_a, s2_wr_a) = conv2_ps.get_rd_wr_a(s_id=2, vin_id=2, vout_id=3)
 
-    stage1 = pl.Stage(pl.StageInfo(
-        rd_a = s1_rdwr_a[0],
-        wr_a = s1_rdwr_a[1],
-    ))
+    s1_ops = [ pl.OpInfo("MxV", [RD_a(s1_rd_a), WR_a(s1_wr_a) ]), ]
+    stage1 = pl.Stage(pl.StageInfo(s1_ops))
 
-    stage2 = pl.Stage(pl.StageInfo(
-         rd_a = s2_rdwr_a[0],
-         wr_a = s2_rdwr_a[1],
-    ))
+    s2_ops = [ pl.OpInfo("MxV", [RD_a(s2_rd_a), WR_a(s2_wr_a) ]), ]
+    stage2 = pl.Stage(pl.StageInfo(s2_ops))
 
     objs = {
         'V1': conv1_ps.get_in_shape(),
@@ -199,7 +208,6 @@ def test_conv2d_conv2d():
 
     vals1 = p.get_object('V1')
     print("vals1.shape=%s image.shape=%s" % (vals1.shape,image.shape))
-    stage2.print_loc_to_max_iter()
     pprint(objs)
     vals1[...] = image
 
@@ -228,71 +236,11 @@ class xdict(dict):
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
 
-def str_to_isl_map(x: str) -> isl.Map:
-    try:
-        return isl.Map(x)
-    except:
-        print("Failed to create an isl.Map from %s" % (x,))
-        raise
-
-@dc.dataclass(init=False)
-class OpInfo:
-    """ Operation (polyhedral) info.
-
-    A list of Instace space -> object access, per object for reads and writes
-    """
-    oi_rds: typing.List[isl.Map]
-    oi_wrs: typing.List[isl.Map]
-
-    def __init__(self, op_name: str):
-        self.oi_rds = []
-        self.oi_wrs = []
-        self.op_name = op_name
-
-    def add_rd_a(self, rel):
-        """ Add a read access relation for MxV """
-        if isinstance(rel, str):
-            rel = str_to_isl_map(rel)
-        self.oi_rds.append(rel)
-        return self
-
-    def add_wr_a(self, rel):
-        """ Add a write access relation for MxV """
-        if isinstance(rel, str):
-            rel = str_to_isl_map(rel)
-        self.oi_wrs.append(rel)
-        return self
-
-@dc.dataclass(init=False)
-class StageInfo:
-    """ Polyhedral information for a stage
-
-    The idea here is that we are able to express the code for every stage in a
-    fused loop as follows:
-      for i in ...
-          for j in ...
-              ....
-                  MxV()
-                  DPU_INS1()
-                  DPU_INS2()
-                  ....
-
-    Each operation (MXV, DPU_INS) has a bunch of read/write accesses to objects
-    that are represented by the polyhedral information.
-    """
-    mxv_i: OpInfo
-    dpu_i: typing.List[OpInfo]
-
-    def __init__(self):
-        self.mxv_i = OpInfo("MxV")
-        self.dpu_i = []
-
 def test_residual_1d():
     #  CONV1D ---> CONV1D ---> ADD
     #          |           ^
     #          |           |
     #          +---------- +
-    #
     #
     # Stage S1:
     #  - MxV (CONV1D)
@@ -309,6 +257,15 @@ def test_residual_1d():
     #     - INPUT: O2, O3 (internal)
     #     - OUTPUT: OUT
     #
+    # cross-stage Objects:
+    #  IN: WRITER: NONE,     READER: S1/MxV
+    #  O1: WRITER: S1/MxV,   READER: S2/MxV
+    #  O2: WRITER: S1/MxV,   READER: S2/ADD
+    # OUT: WRITER: S2/ADD,   READER: NONE
+    #
+    # Objects have a single writer and reader
+    # Stages might read or write more than one objects
+
     params = {}
     def params_compute(p, expr):
         params[p] = eval(expr, None, params)
@@ -324,22 +281,54 @@ def test_residual_1d():
     params.update({'F2': 3, 'P2': 1, 'S2': 1})
     params_compute("O3",  "(O1 - F2 + 2*P2) // S2 + 1")
 
-    s1 = StageInfo()
-    s1.mxv_i.add_rd_a("{{ S1[s1] -> IN[i1]: 0 <= s1 <= {O1} and  s1 <= i1 < s1 + {F1} }}".format(**params))
-    s1.mxv_i.add_wr_a("{{ S1[s1] -> O1[o1] : o1 = s1 + {P2} }}".format(**params))
-    s1.mxv_i.add_wr_a("{{ S1[s1] -> O2[o2] : o2 = s1 }}".format(**params))
+    RD = pl.IslAccess.RD
+    WR = pl.IslAccess.WR
+    s1_ops = [
+        pl.OpInfo("MxV", [
+            RD("{{ S1[s1] -> IN[i1] : 0 <= s1 < {O1} and s1 <= i1 < s1 + {F1} }}".format(**params)),
+            WR("{{ S1[s1] -> O1[o1] : 0 <= s1 < {O1} and o1 = s1 + {P2} }}".format(**params)),
+            WR("{{ S1[s1] -> O2[o2] : 0 <= s1 < {O1} and o2 = s1 }}".format(**params)),
+        ])
+    ]
+
+    s2_ops = [
+        pl.OpInfo("MxV", [
+            RD("{{ S2[s2] -> O1[o1] : 0 <= s2 < {O3} and s2 <= o1 < s2 + {F2}}}".format(**params)),
+            WR("{{ S2[s2] -> O3[o3] : 0 <= s2 < {O3} and o3 = s2 }}".format(**params)),
+        ]),
+        pl.OpInfo("ADD", [
+            RD("{{ S2[s2] -> O2[o2]   : 0 <= s2 < {O3} and o2  = s2 }}".format(**params)),
+            RD("{{ S2[s2] -> O3[o3]   : 0 <= s2 < {O3} and o3  = s2 }}".format(**params)),
+            WR("{{ S2[s2] -> OUT[out] : 0 <= s2 < {O3} and out = s2 }}".format(**params)),
+        ])
+    ]
+
+    s2 = pl.Stage(pl.StageInfo(s2_ops))
+    assert s2.si.ro_objs == set(('O1','O2'))
+    assert s2.si.wo_objs == set(('OUT',))
+    assert s2.si.rw_objs == set(('O3',))
+
+    s1 = pl.Stage(pl.StageInfo(s1_ops))
+    assert s1.si.ro_objs == set(('IN',))
+    assert s1.si.wo_objs == set(('O1', 'O2'))
+    assert s1.si.rw_objs == set()
 
 
-    # NB: we do not track the writes and reads on O3, because it's local (within a single stage)
-    s2 = StageInfo()
-    s2.mxv_i.add_rd_a("{{ S2[s2] -> O1[o1] : 0 <= s2 <= {O3} and s2 <= o1 < s2 + {F2}}}".format(**params))
-    add_info = OpInfo("ADD")
-    add_info.add_rd_a("{{ S2[s2] -> O2[o2] : o2 = s2 }}".format(**params))
-    add_info.add_wr_a("{{ S2[s2] -> OUT[out] : out = s2 }}".format(**params))
-    s2.dpu_i.append(add_info)
+    # TODO: fix shapes
+    objs = {
+        'IN': (1,0),
+        'O1': (1,0),
+        'O2': (1,0),
+        'O4': (1,0),
+        'OUT': (1,0),
+    }
 
-    return
+    pline = pl.Pipeline([s1, s2], objs, execute_ops=True)
 
 
 if __name__ == '__main__':
-    a = test_residual_1d()
+    # test_mxv()
+    # test_conv1d()
+    # test_conv2d()
+    # test_conv2d_conv2d()
+    ret = test_residual_1d()

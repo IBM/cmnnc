@@ -29,6 +29,13 @@ def fix_params(x, vals):
         # ret = ret.add_constraint(isl.Constraint.eq_from_names(ret.space, {vp: 1, 1: vv}))
     return ret
 
+def str_to_isl_map(x: str) -> isl.Map:
+    try:
+        return isl.Map(x)
+    except:
+        print("Failed to create an isl.Map from %s" % (x,))
+        raise
+
 
 def dict_from_map(isl_map, p_key, p_val):
     """ Create a dictionary from an ISL map. """
@@ -148,7 +155,11 @@ def isl_set_to_ast(isl_s):
     # My guess is that the sched below is just the identity.
     sched = isl.Map.from_domain(isl_s)
     bld = isl.AstBuild.from_context(isl.Set("{:}"))
-    ast = bld.ast_from_schedule(sched)
+    try:
+        ast = bld.ast_from_schedule(sched)
+    except:
+        print("Failed to build ISL AST for ISL map %s"  % (isl_s,))
+        raise
     return ast
 
 def isl_map_to_ast(isl_m):
