@@ -266,20 +266,24 @@ def test_residual_1d():
     # Objects have a single writer and reader
     # Stages might read or write more than one objects
 
-    params = {}
+    params = xdict()
     def params_compute(p, expr):
         params[p] = eval(expr, None, params)
+
+    def params_eval(expr):
+        return eval(expr, None, params)
 
     # IN: input size (w/o padding)
     # F1: filter size
     # P1: padding
-    params = { 'IN': 10, 'F1': 3, 'P1': 1, 'S1': 1}
+    params.update({ 'IN': 10, 'F1': 3, 'P1': 1, 'S1': 1})
     # O1: output 1 size
     params_compute("O1",  "(IN - F1 + 2*P1) // S1 + 1")
     params_compute("O2",  "O1")
     #
     params.update({'F2': 3, 'P2': 1, 'S2': 1})
     params_compute("O3",  "(O1 - F2 + 2*P2) // S2 + 1")
+    params_compute("OUT",  "max(O2,O3)")
 
     RD = pl.IslAccess.RD
     WR = pl.IslAccess.WR
@@ -316,15 +320,35 @@ def test_residual_1d():
 
     # TODO: fix shapes
     objs = {
-        'IN': (1,0),
-        'O1': (1,0),
-        'O2': (1,0),
-        'O4': (1,0),
-        'OUT': (1,0),
+        'IN':  (params_eval("IN + 2*P1"), ),
+        'O1':  (params.O1, ),
+        'O2':  (params.O2, ),
+        'O3':  (params.O3, ),
+        'OUT': (params.OUT,),
     }
 
     pline = pl.Pipeline([s1, s2], objs, execute_ops=True)
 
+    pprint(params)
+    filters1 = np.random.rand(1, params.F1)
+    cconf1 = pl.CoreConf(filters1)
+
+    filters2 = np.random.rand(1, params.F2)
+    cconf2 = pl.CoreConf(filters2)
+
+    image = np.random.rand(params.IN)
+    image = np.pad(image, 1)
+
+    pline.configure([cconf1,cconf2])
+    inp = pline.get_object("IN")
+    inp[...] = image
+
+    #while True:
+    #    iters = pline.tick()
+    #    print("*"*80)
+    #    for (s,i) in iters.items():
+    #        print("%s: %s" % (s, i))
+    #    print("*"*80)
 
 if __name__ == '__main__':
     # test_mxv()

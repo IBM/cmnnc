@@ -198,7 +198,7 @@ class StageInfo:
                         raise ValueError("Object %s written in op %s (id:%d) previously write and read" % (objname, op.op_ty, op_id))
                     else:
                         self.wo_objs.add(objname)
-                else: ValueError("Uknown access type: %s" % (acc.a_ty,))
+                else: ValueError("Unknown access type: %s" % (acc.a_ty,))
 
     def get_stage_name(self) -> str:
         return self.ops[0].get_stage_name()
@@ -628,12 +628,24 @@ class Core:
 
         return ret
 
+    def read_object(self, objstr, rd_is):
+        if objstr not in self.objs:
+            raise ValueError("object %s does not exist in this core" % (objstr,))
+        obj = self.objs[objstr]
+        # NB: not sure if we need to deal with multi-dimensional objects or how
+        # to. For now assume, that objects stored on cores are 1D
+        ret = np.zeros(shape=(len(rd_is),) )
+        for i,idx in enumerate(rd_is):
+            assert isinstance(idx, tuple) and len(idx) == len(obj.shape), "idx=%s obj.shape=%s" % (idx, obj.shape)
+            ret[i] = obj[idx]
+        return ret
+
     def execute_ops(self, ops: ExecOp) -> typing.Dict[str, np.ndarray]:
         """ Execute operations """
         if self.xbar_m is None:
             raise RuntimeError("core xbar matrix is undefined")
 
-        assert ops[0].ty == "MxV"
+        assert ops[0].ty == "MxV", "First operation should be on the crossbar (MxV)"
 
         # TODO: We need to handle the case where one op reads the output of
         # another op. In this case, we should read the data from @ret, and
@@ -648,16 +660,26 @@ class Core:
                     raise ValueError("object %s does not exist in this core" % (rd_objstr,))
                 rd_obj = self.objs[rd_objstr]
                 # Fill-in input vector for mxv
-                x = np.zeros(shape=(len(rd_is),) )
-                for i,idx in enumerate(rd_is):
-                    assert isinstance(idx, tuple) and len(idx) == len(rd_obj.shape), "idx=%s rd_obj.shape=%s" % (idx, rd_obj.shape)
-                    x[i] = rd_obj[idx]
+                x = self.read_object(rd_objstr, rd_is)
                 y = np.matmul(self.xbar_m, x)
+                # For every output object, zip the result with the indices 
+                for (wr_objstr, wr_is) in op.accesses["WR"].items():
+                    assert wr_objstr not in ret
+                    ret[wr_objstr] = zip(wr_is, y)
+            elif  op.ty == "ADD":
+                if len(op.accesses["RD"]) != 2:
+                    raise ValueError("ADD: expecting 2 read arguments (got %d)." % (len(op.accesses['RD'], )))
+                rd_accesses = list(op.accesses["RD"].items())
+                (rd_objstr1, rd_is1) = rd_accesses[0]
+                x1 = self.read_object(rd_objstr1, rd_is1)
+                (rd_objstr2, rd_is2) = rd_accesses[1]
+                x2 = self.read_object(rd_objstr2, rd_is2)
+                y = np.add(x1, x2)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
                     assert wr_objstr not in ret
                     ret[wr_objstr] = zip(wr_is, y)
             else:
-                raise ValueError("Uknown operation:" % (op.ty,))
+                raise ValueError("Unknown operation: %s" % (op.ty,))
 
         return ret
 
