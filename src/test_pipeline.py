@@ -321,7 +321,7 @@ def test_residual_1d():
     # TODO: fix shapes
     objs = {
         'IN':  (params_eval("IN + 2*P1"), ),
-        'O1':  (params.O1, ),
+        'O1':  (params_eval("O1 + 2*P2"), ),
         'O2':  (params.O2, ),
         'O3':  (params.O3, ),
         'OUT': (params.OUT,),
@@ -343,12 +343,12 @@ def test_residual_1d():
     inp = pline.get_object("IN")
     inp[...] = image
 
-    #while True:
-    #    iters = pline.tick()
-    #    print("*"*80)
-    #    for (s,i) in iters.items():
-    #        print("%s: %s" % (s, i))
-    #    print("*"*80)
+    for i in range(12):
+        iters = pline.tick()
+        print("*"*80)
+        for (s,i) in iters.items():
+            print("%s: %s" % (s, i))
+        print("*"*80)
 
 if __name__ == '__main__':
     # test_mxv()

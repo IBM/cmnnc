@@ -606,9 +606,7 @@ class Core:
         Will raise an error if that's not the case
         """
 
-        # TODO: We need to handle the case where one op reads the output of
-        # another op. In this case, we should read the data from @ret, and
-        # delete them so that they are not part of the returned result.
+        # TODO: Use self.read_object()
         ret = {}
         for op in ops:
             for (rd_objstr, rd_is) in op.accesses["RD"].items():
@@ -628,15 +626,30 @@ class Core:
 
         return ret
 
-    def read_object(self, objstr, rd_is):
-        if objstr not in self.objs:
-            raise ValueError("object %s does not exist in this core" % (objstr,))
-        obj = self.objs[objstr]
+    def read_object(self, objstr, rd_is, results):
+        # An object is either a core-local object or an intermediate result from this set of operations.
+        if objstr in self.objs:
+            obj = self.objs[objstr]
+        elif objstr in results:
+            obj_vals = results[objstr]
+            # This is dumb (but easy) and only works for 1-D.
+            # I think the best solution is to provide the shape of intermediate
+            # objects as well
+            obj = {}
+            for (i,v) in obj_vals:
+                print(i)
+                obj[i] = v
+            # delete intermediate results
+            del results[objstr]
+        else:
+            raise ValueError("object %s not found in local objects (%s) or intermediate results (%s)" % (objstr, ','.join(self.objs), ','.join(results)))
         # NB: not sure if we need to deal with multi-dimensional objects or how
         # to. For now assume, that objects stored on cores are 1D
         ret = np.zeros(shape=(len(rd_is),) )
         for i,idx in enumerate(rd_is):
-            assert isinstance(idx, tuple) and len(idx) == len(obj.shape), "idx=%s obj.shape=%s" % (idx, obj.shape)
+            # We check if there is a shape attribute to accomodate the stupid way we deal with intermediate results.
+            # Once we fix this, we can remove the check.
+            assert isinstance(idx, tuple) and (getattr(obj, "shape", None) is None or len(idx) == len(obj.shape)) , "idx=%s obj.shape=%s" % (idx, obj.shape)
             ret[i] = obj[idx]
         return ret
 
@@ -647,45 +660,47 @@ class Core:
 
         assert ops[0].ty == "MxV", "First operation should be on the crossbar (MxV)"
 
-        # TODO: We need to handle the case where one op reads the output of
-        # another op. In this case, we should read the data from @ret, and
-        # delete them so that they are not part of the returned result.
-        ret = {}
+        # Each operation has a predefined number of inputs, but can have an
+        # arbitrary number of outputs, where results are copied. Some outputs,
+        # might be used as intermediate results by subsequent operations.
+        # These are not returned.
+        results = {}
         for op in ops:
             if op.ty == "MxV":
                 if len(op.accesses["RD"]) != 1:
                     raise ValueError("MxV: expecting 1 read argument (got %d)." % (len(op.accesses['RD'], )))
                 (rd_objstr, rd_is) = next(iter(op.accesses["RD"].items()))
-                if rd_objstr not in self.objs:
-                    raise ValueError("object %s does not exist in this core" % (rd_objstr,))
-                rd_obj = self.objs[rd_objstr]
-                # Fill-in input vector for mxv
-                x = self.read_object(rd_objstr, rd_is)
+                # Fill input vector for mxv
+                x = self.read_object(rd_objstr, rd_is, results)
                 y = np.matmul(self.xbar_m, x)
                 # For every output object, zip the result with the indices 
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
-                    assert wr_objstr not in ret
-                    ret[wr_objstr] = zip(wr_is, y)
+                    assert wr_objstr not in results
+                    results[wr_objstr] = zip(wr_is, y)
             elif  op.ty == "ADD":
                 if len(op.accesses["RD"]) != 2:
                     raise ValueError("ADD: expecting 2 read arguments (got %d)." % (len(op.accesses['RD'], )))
                 rd_accesses = list(op.accesses["RD"].items())
                 (rd_objstr1, rd_is1) = rd_accesses[0]
-                x1 = self.read_object(rd_objstr1, rd_is1)
+                x1 = self.read_object(rd_objstr1, rd_is1, results)
                 (rd_objstr2, rd_is2) = rd_accesses[1]
-                x2 = self.read_object(rd_objstr2, rd_is2)
+                x2 = self.read_object(rd_objstr2, rd_is2, results)
                 y = np.add(x1, x2)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
-                    assert wr_objstr not in ret
-                    ret[wr_objstr] = zip(wr_is, y)
+                    assert wr_objstr not in results
+                    results[wr_objstr] = zip(wr_is, y)
             else:
                 raise ValueError("Unknown operation: %s" % (op.ty,))
 
-        return ret
+        return results
 
 
     def write_obj(self, objname: str, w_idx, w_val):
-        self.objs[objname][w_idx] = w_val
+        try:
+            self.objs[objname][w_idx] = w_val
+        except:
+            print("Error accessing object %s on idx=%s" % (objname, w_idx))
+            raise
 
     def validate_write(self, objname: str, w_idx):
         _= self.objs[objname][w_idx]
