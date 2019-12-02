@@ -23,8 +23,8 @@ TensorTy = namedtuple('TensorTy',
 def mk_conv(conv_ps):
     """ CONV """
 
-    if not isinstance(conv_ps, conv.ConvParams):
-        raise TypeError("Expecting ConvParams, but got: %s" % (type(conv_ps),))
+    if not isinstance(conv_ps, conv.Conv2DParams):
+        raise TypeError("Expecting Conv2DParams, but got: %s" % (type(conv_ps),))
 
     # Tensor types
     tensor_tys = {
@@ -75,10 +75,10 @@ def mk_conv(conv_ps):
 def mk_conv_conv(conv1_ps, conv2_ps):
     """ CONV -> CONV """
 
-    if not isinstance(conv1_ps, conv.ConvParams):
-        raise TypeError("Expecting ConvParams, but got: %s" % (type(conv1_ps),))
-    if not isinstance(conv1_ps, conv.ConvParams):
-        raise TypeError("Expecting ConvParams, but got: %s" % (type(conv1_ps),))
+    if not isinstance(conv1_ps, conv.Conv2DParams):
+        raise TypeError("Expecting Conv2DParams, but got: %s" % (type(conv1_ps),))
+    if not isinstance(conv1_ps, conv.Conv2DParams):
+        raise TypeError("Expecting Conv2DParams, but got: %s" % (type(conv1_ps),))
 
     # Tensor types
     tensor_tys = {

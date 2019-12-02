@@ -31,9 +31,9 @@ class TestConv(unittest.TestCase):
         super().__init__(*args, **kwargs)
 
         # same parameters as CIFAR's first convolution
-        self.conv_ps = conv.ConvParams(
-            i = conv.ConvInParams(w=32, h=32, d=3),
-            f = conv.ConvFiltParams(w=3, h=3, d=3, l=16),
+        self.conv_ps = conv.Conv2DParams(
+            i = conv.Conv2DInParams(w=32, h=32, d=3),
+            f = conv.Conv2DFiltParams(w=3, h=3, d=3, l=16),
             p = 1,
             s = 1,
             p_out = 0
@@ -73,16 +73,16 @@ class TestConvConv(unittest.TestCase):
         conv1_padding = 1
         conv2_padding = 1
 
-        conv1_ps = self.conv1_ps = conv.ConvParams(
-            i = conv.ConvInParams(w=32, h=32, d=3),
-            f = conv.ConvFiltParams(w=3, h=3, d=3, l=1),
+        conv1_ps = self.conv1_ps = conv.Conv2DParams(
+            i = conv.Conv2DInParams(w=32, h=32, d=3),
+            f = conv.Conv2DFiltParams(w=3, h=3, d=3, l=1),
             p = conv1_padding,
             p_out = conv2_padding,
             s = 1)
 
-        self.conv2_ps = conv.ConvParams(
+        self.conv2_ps = conv.Conv2DParams(
             i = conv1_ps.o.to_in(),
-            f = conv.ConvFiltParams(w=3, h=3, d=conv1_ps.f.l, l=1),
+            f = conv.Conv2DFiltParams(w=3, h=3, d=conv1_ps.f.l, l=1),
             p = conv2_padding,
             p_out = 0,
             s = 1)

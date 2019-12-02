@@ -840,7 +840,12 @@ class Pipeline:
             elif wr_val is not None and wr_objstr in self.orphan_objs:
                 # if wr_val exsits, and this is an orphan object, update value
                 wr_obj = self.orphan_objs[wr_objstr]
-                assert isinstance(wr_idx, tuple) and len(wr_obj.shape) == len(wr_idx)
+                try:
+                    assert isinstance(wr_idx, tuple) and len(wr_obj.shape) == len(wr_idx)
+                except:
+                    print("wr_idx:", wr_idx)
+                    print("wr_obj.shape", wr_obj.shape)
+                    raise
                 wr_obj[wr_idx] = wr_val
 
         self.writes = []

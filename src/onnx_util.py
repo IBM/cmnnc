@@ -17,7 +17,7 @@ def get_init_data(graph, name):
             return init
 
 def conv_params_from_onnx_node(graph, node):
-    """ Create a ConvParams structure from an ONNX convolution node """
+    """ Create a Conv2DParams structure from an ONNX convolution node """
     if node.op_type != 'Conv':
         raise TypeError("Expecting type 'Conv', but got type:'%s'" (node.op_type,))
     attrs = dict( (x.name,x) for x in node.attribute )
@@ -59,7 +59,7 @@ def conv_params_from_onnx_node(graph, node):
     #    maps.  For more than 2 dimensions, the kernel shape will be (M x
     #    C/group x k1 x k2 x ... x kn), where (k1 x k2 x ... kn) is the
     #    dimension of the kernel.  (...)
-    f = conv.ConvFiltParams(
+    f = conv.Conv2DFiltParams(
         w=weights.dims[-1],
         h=weights.dims[-2],
         d=weights.dims[-3],
@@ -75,13 +75,13 @@ def conv_params_from_onnx_node(graph, node):
     #    arrive with the dimension denotation of [DATA_BATCH, DATA_CHANNEL,
     #    DATA_FEATURE, DATA_FEATURE ...].
     # XXX: For now, we ignore inp.dims[-4] which is the batch size
-    i = conv.ConvInParams(
+    i = conv.Conv2DInParams(
         w = inp.type.tensor_type.shape.dim[-1].dim_value,
         h = inp.type.tensor_type.shape.dim[-2].dim_value,
         d = inp.type.tensor_type.shape.dim[-3].dim_value
     )
 
-    conv_ps = conv.ConvParams(
+    conv_ps = conv.Conv2DParams(
         i = i,
         f = f,
         p = p,

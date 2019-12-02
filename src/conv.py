@@ -15,8 +15,10 @@ def check_type(v, ty, n=""):
         raise TypeError("%s: expecting type %s got type %s" % (n, ty.__name__, type(v)))
     return v
 
+""" 2D convolution """
+
 @dc.dataclass(init=False)
-class ConvInParams:
+class Conv2DInParams:
     w: int
     h: int
     d: int
@@ -27,7 +29,7 @@ class ConvInParams:
         self.d = d
 
 @dc.dataclass(init=False)
-class ConvFiltParams:
+class Conv2DFiltParams:
     """ Convolution filter dimensions """
     w: int
     h: int
@@ -40,7 +42,7 @@ class ConvFiltParams:
         self.l = l
 
 @dc.dataclass(init=False)
-class ConvOutParams:
+class Conv2DOutParams:
     """ Convolution output dimensions """
     w: int
     h: int
@@ -51,26 +53,26 @@ class ConvOutParams:
         self.d = d
 
     def to_in(self):
-        return ConvInParams(w=self.w, h=self.h, d=self.d)
+        return Conv2DInParams(w=self.w, h=self.h, d=self.d)
 
 @dc.dataclass(init=False)
-class ConvParams:
+class Conv2DParams:
     """ Convolution parameters """
-    i: ConvInParams
-    f: ConvFiltParams
+    i: Conv2DInParams
+    f: Conv2DFiltParams
     p: int
     s: int
-    o: ConvOutParams
+    o: Conv2DOutParams
 
     def get_out_params(self):
         ow = eval("(i.w - f.w + 2*p) // s + 1", self.__dict__)
         oh = eval("(i.h - f.h + 2*p) // s + 1", self.__dict__)
         od = eval("f.l", self.__dict__)
-        return ConvOutParams(w=ow, h=oh, d=od)
+        return Conv2DOutParams(w=ow, h=oh, d=od)
 
-    def __init__(self, *,  i: ConvInParams, f: ConvFiltParams, p: int, p_out: int, s: int):
-        self.i = check_type(i, ConvInParams, "i")
-        self.f = check_type(f, ConvFiltParams, "f")
+    def __init__(self, *,  i: Conv2DInParams, f: Conv2DFiltParams, p: int, p_out: int, s: int):
+        self.i = check_type(i, Conv2DInParams, "i")
+        self.f = check_type(f, Conv2DFiltParams, "f")
         self.p = p
         self.p_out = p_out
         self.s = s
@@ -85,6 +87,7 @@ class ConvParams:
 
     def get_out_shape(self):
         """ Get the output shape as a (D,H,W) tuple """
+        # XXX: Don't we need to consider p_out here?
         return (self.o.d, self.o.h, self.o.w)
 
     def get_filters_shape(self):
@@ -163,8 +166,6 @@ def conv2d_simple(image, filters, conv_params):
     return output
 
 def conv2d_mxv(image, filters, conv_params):
-    # compute the matrix based on the filters
-
     # reshape the filters so that we can use MxV
     filters_m = filters.reshape(conv_params.eval("(f.l, f.d*f.h*f.w)"))
     output_shape = conv_params.get_out_shape()
@@ -180,3 +181,105 @@ def conv2d_mxv(image, filters, conv_params):
 
             output[:,oh,ow] = res
     return output
+
+
+""" 1D Convolution """
+
+@dc.dataclass(init=False)
+class Conv1DInParams:
+    w: int
+    d: int
+    """ Convolution input dimensions """
+    def __init__(self, *, w, d):
+        self.w = w
+        self.d = d
+
+@dc.dataclass(init=False)
+class Conv1DFiltParams:
+    """ Convolution filter dimensions """
+    w: int
+    d: int
+    l: int
+    def __init__(self, *, w, d, l):
+        self.w = w
+        self.d = d
+        self.l = l
+
+@dc.dataclass(init=False)
+class Conv1DOutParams:
+    """ Convolution output dimensions """
+    w: int
+    d: int
+    def __init__(self, *, w, d):
+        self.w = w
+        self.d = d
+
+    def to_in(self):
+        return Conv1DInParams(w=self.w, d=self.d)
+
+@dc.dataclass(init=False)
+class Conv1DParams:
+    """ Convolution parameters """
+    i: Conv1DInParams
+    f: Conv1DFiltParams
+    p: int
+    s: int
+    o: Conv1DOutParams
+
+    def eval(self, e):
+        return eval(e, self.__dict__)
+
+    def __init__(self, *, i: Conv1DInParams, f: Conv1DFiltParams, p: int, p_out: int, s: int):
+        self.i = check_type(i, Conv1DInParams, "i")
+        self.f = check_type(f, Conv1DFiltParams, "i")
+        self.p = p
+        self.p_out = p_out
+        self.s = s
+        self.o = self.get_out_params()
+        if self.i.d != self.f.d:
+            raise ValueError("input d=%d and filter d=%d parameters do not match", (self.i.d, self.f.d))
+
+    def get_out_params(self):
+        ow = eval("(i.w - f.w + 2*p) // s + 1", self.__dict__)
+        od = eval("f.l", self.__dict__)
+        return Conv1DOutParams(w=ow, d=od)
+
+    def get_filters_shape(self):
+        """ Get the shape of the filters as a (L,D,W) tuple """
+        return (self.f.l, self.f.d, self.f.w)
+
+    def get_image_shape(self):
+        """ Get the shape of the image (no padding) as a (D,W) tuple """
+        return (self.i.d, self.i.w)
+
+    def get_padding(self):
+        """ Return something that you can pass to numpy.pad() """
+        return ((0,0), (self.p, self.p))
+
+    def get_in_shape(self):
+        """ Get the input shape (including padding) as a (D,W) tuple """
+        return (self.i.d, self.i.w + 2*self.p)
+
+    def get_out_shape(self):
+        """ Get the output shape as a (D,H,W) tuple """
+        # XXX: Don't we need to consider p_out, here?
+        return (self.o.d, self.o.w)
+
+def conv1d_simple(image, filters, params: Conv1DParams):
+    output_shape = params.eval("o.d, o.w")
+    output = np.ndarray(output_shape)
+    for od in range(params.o.d):
+        for ow in range(params.o.w):
+            iw = params.s*ow
+            image_block = image[:,iw: iw + params.f.w]
+            filter_block = filters[od,:,:]
+            try:
+                assert image_block.shape == filter_block.shape
+            except AssertionError:
+                print("image_block.shape=", image_block.shape, "filter_block.shape=", filter_block.shape)
+                raise
+
+            # piecewise multiplication and sum
+            output[od][ow] = np.sum(image_block*filter_block)
+    return output
+
