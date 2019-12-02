@@ -408,7 +408,7 @@ class Stage:
         """
         self.si = si
         self.param_vals = param_vals if param_vals is not None else dict()
-        self.print_ast_ = True
+        self.print_ast_ = False
 
         # For every object this stage needs to read, this dict stores the ISL
         # relation that provides the following mapping:
@@ -421,13 +421,20 @@ class Stage:
         self.access_i = AccessIterator(self)
         self.loctomaxiter_i = LocToMaxIterIterator(self)
 
-    def get_rd_objnames(self) -> typing.Set[str]:
-        """ Return the objects that this stage reads """
+    def get_ro_objnames(self) -> typing.Set[str]:
+        """ Return the objects that this stage reads (only) """
         return self.si.ro_objs
 
-    def get_wr_objnames(self) -> typing.Set[str]:
-        """ Return the objects that this stage reads """
+    def get_wo_objnames(self) -> typing.Set[str]:
+        """ Return the objects that this stage writes (only) """
         return self.si.wo_objs
+
+    def get_rw_objnames(self) -> typing.Set[str]:
+        """ Return the objects that this stage both writes and reads.
+
+        These are objects internal in the stage.
+        """
+        return self.si.rw_objs
 
     def attach_to_pipeline(self, pipeline_write, execute_ops):
         self.pipeline_write = pipeline_write
@@ -575,6 +582,7 @@ class Core:
     def __init__(self):
         self.xbar_m = None
         self.objs = {}
+        self.internal_objs = {}
 
     def configure(self, cnf: CoreConf):
         self.set_xbar_matrix(cnf.xbar_m)
@@ -598,6 +606,18 @@ class Core:
 
     def get_object(self, objname: str):
         return self.objs[objname]
+
+    def alloc_internal_object(self, objname: str, shape: typing.Tuple[int, ...]):
+        obj = np.zeros(shape)
+        self.set_internal_object(objname, obj)
+
+    def set_internal_object(self, objname: str, obj: np.ndarray):
+        if objname in self.internal_objs:
+            raise ValueError("internal object %s already exists" % (objname,))
+        self.internal_objs[objname] = obj
+
+    def get_internal_object(self, objname: str):
+        return self.internal_objs[objname]
 
     def validate_ops(self, ops: ExecOp):
         """ Valdidate operations
@@ -630,21 +650,13 @@ class Core:
         # An object is either a core-local object or an intermediate result from this set of operations.
         if objstr in self.objs:
             obj = self.objs[objstr]
-        elif objstr in results:
-            obj_vals = results[objstr]
-            # This is dumb (but easy) and only works for 1-D.
-            # I think the best solution is to provide the shape of intermediate
-            # objects as well
-            obj = {}
-            for (i,v) in obj_vals:
-                print(i)
-                obj[i] = v
-            # delete intermediate results
-            del results[objstr]
+        elif objstr in self.internal_objs:
+            obj = self.internal_objs[objstr]
         else:
-            raise ValueError("object %s not found in local objects (%s) or intermediate results (%s)" % (objstr, ','.join(self.objs), ','.join(results)))
+            raise ValueError("object %s not found in local objects (%s) or intermediate results (%s)" % (objstr, ','.join(self.objs), ','.join(self.internal_objs)))
+
         # NB: not sure if we need to deal with multi-dimensional objects or how
-        # to. For now assume, that objects stored on cores are 1D
+        # to. For now assume that objects stored on cores are 1D
         ret = np.zeros(shape=(len(rd_is),) )
         for i,idx in enumerate(rd_is):
             # We check if there is a shape attribute to accomodate the stupid way we deal with intermediate results.
@@ -652,6 +664,30 @@ class Core:
             assert isinstance(idx, tuple) and (getattr(obj, "shape", None) is None or len(idx) == len(obj.shape)) , "idx=%s obj.shape=%s" % (idx, obj.shape)
             ret[i] = obj[idx]
         return ret
+
+    def handle_op_output(self,
+                         objstr: str,
+                         results: typing.Dict[str, np.ndarray],
+                         wr_is: typing.List[typing.Tuple[int, ...]],
+                         wr_vs: np.ndarray):
+        """ Handle operation output
+
+        objstr: object
+        results: what we will return when we are done with executing operations
+        wr_is: write inddices
+        wr_vs: write values
+        """
+
+        if objstr in self.internal_objs:
+            # If this is an internal object, just write the values to it
+            obj = self.get_internal_object(objstr)
+            for (w_i, w_v) in zip(wr_is, wr_vs):
+                obj[w_i] = w_v
+        else:
+            # Otherwise update results
+            assert objstr not in results
+            results[objstr] = zip(wr_is, wr_vs)
+
 
     def execute_ops(self, ops: ExecOp) -> typing.Dict[str, np.ndarray]:
         """ Execute operations """
@@ -673,10 +709,8 @@ class Core:
                 # Fill input vector for mxv
                 x = self.read_object(rd_objstr, rd_is, results)
                 y = np.matmul(self.xbar_m, x)
-                # For every output object, zip the result with the indices 
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
-                    assert wr_objstr not in results
-                    results[wr_objstr] = zip(wr_is, y)
+                    self.handle_op_output(wr_objstr, results, wr_is, y)
             elif  op.ty == "ADD":
                 if len(op.accesses["RD"]) != 2:
                     raise ValueError("ADD: expecting 2 read arguments (got %d)." % (len(op.accesses['RD'], )))
@@ -687,8 +721,7 @@ class Core:
                 x2 = self.read_object(rd_objstr2, rd_is2, results)
                 y = np.add(x1, x2)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
-                    assert wr_objstr not in results
-                    results[wr_objstr] = zip(wr_is, y)
+                    self.handle_op_output(wr_objstr, results, wr_is, y)
             else:
                 raise ValueError("Unknown operation: %s" % (op.ty,))
 
@@ -738,6 +771,9 @@ class Object:
             raise TypeError("failed to set stage %s as writer of object %s because there is already a writer set (stage %s) " % (stagename, self.name, self.writer))
         self.writer = stagename
 
+    def is_internal(self) -> bool:
+        return (self.reader is not None) and (self.reader == self.writer)
+
 class Pipeline:
     """ Pipeline """
 
@@ -771,22 +807,34 @@ class Pipeline:
         # Discover dependencies and build the loc_to_max_iter relation for
         # every writer/reader pair.
         for st in stages:
-            for rd_objname in st.get_rd_objnames():
-                if rd_objname not in self.p_objs:
+            for ro_objname in st.get_ro_objnames():
+                if ro_objname not in self.p_objs:
                     raise ValueError("Object %s read by stage %s, but not provided in initialization" % (rd_objname, st.get_name()))
-                obj = self.p_objs[rd_objname]
+                obj = self.p_objs[ro_objname]
                 obj.set_reader(st.get_name())
 
-            for wr_objname in st.get_wr_objnames():
-                if wr_objname not in self.p_objs:
-                    raise ValueError("Object %s written by stage %s, but not provided in initialization" % (wr_objname, st.get_name()))
-                obj = self.p_objs[wr_objname]
+            for wo_objname in st.get_wo_objnames():
+                if wo_objname not in self.p_objs:
+                    raise ValueError("Object %s written by stage %s, but not provided in initialization" % (wo_objname, st.get_name()))
+                obj = self.p_objs[wo_objname]
+                obj.set_writer(st.get_name())
+
+            for rw_objname in st.get_rw_objnames():
+                if rw_objname not in self.p_objs:
+                    raise ValueError("Object %s is internal to stage %s, but not provided in initialization" % (rw_objname, st.get_name()))
+                obj = self.p_objs[rw_objname]
+                obj.set_reader(st.get_name())
                 obj.set_writer(st.get_name())
 
         # setup stages and allocate objects based on their dependencies
         self.orphan_objs = {}
         for obj in self.p_objs.values():
-            if obj.reader is not None:
+            if obj.is_internal():
+                print("Object %s is internal to %s." % (obj.name, obj.reader))
+                reader_stage = self.p_stages[obj.reader]
+                reader_stage.core.alloc_internal_object(obj.name, obj.shape)
+
+            elif obj.reader is not None:
                 reader_stage = self.p_stages[obj.reader]
                 reader_stage.core.alloc_object(obj.name, obj.shape)
                 if obj.writer is None:
@@ -851,18 +899,22 @@ class Pipeline:
         self.writes = []
 
     def get_object(self, objstr):
-        reader = self.p_objs[objstr].reader
-        if reader is not None:
+        obj = self.p_objs[objstr]
+        reader = obj.reader
+        if obj.is_internal():
+            stage = self.p_stages[reader]
+            return stage.core.get_internal_object(objstr)
+        elif reader is not None:
             stage = self.p_stages[reader]
             return stage.core.get_object(objstr)
         elif objstr in self.orphan_objs:
             return self.orphan_objs[objstr]
         else:
-            return None
+            raise ValueError("Could not found object %s" % (objstr,))
 
     def tick(self):
         s = "TICK: %d" % (self.nticks,)
-        print("="*10, s, "="*(80-10-len(s)-2))
+        # print("="*10, s, "="*(80-10-len(s)-2))
         ret = {}
         for (s,t) in self.stage_ticks:
             it = next(t)

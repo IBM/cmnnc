@@ -276,7 +276,7 @@ def conv1d_simple(image, filters, params: Conv1DParams):
             try:
                 assert image_block.shape == filter_block.shape
             except AssertionError:
-                print("image_block.shape=", image_block.shape, "filter_block.shape=", filter_block.shape)
+                print("ow=", ow, "image.shape=", image.shape, "image_block.shape=", image_block.shape, "filter_block.shape=", filter_block.shape)
                 raise
 
             # piecewise multiplication and sum

@@ -326,25 +326,23 @@ def test_residual_1d():
     params_compute("O3",  "(O1 - F2 + 2*P2) // S2 + 1")
     params_compute("OUT",  "max(O2,O3)")
 
-    RD = pl.IslAccess.RD
-    WR = pl.IslAccess.WR
     s1_ops = [
         pl.OpInfo("MxV", [
-            RD("{{ S1[s1] -> IN[i1] : 0 <= s1 < {O1} and s1 <= i1 < s1 + {F1} }}".format(**params)),
-            WR("{{ S1[s1] -> O1[o1] : 0 <= s1 < {O1} and o1 = s1 + {P2} }}".format(**params)),
-            WR("{{ S1[s1] -> O2[o2] : 0 <= s1 < {O1} and o2 = s1 }}".format(**params)),
+            RD_a("{{ S1[s1] -> IN[i1] : 0 <= s1 < {O1} and s1 <= i1 < s1 + {F1} }}".format(**params)),
+            WR_a("{{ S1[s1] -> O1[o1] : 0 <= s1 < {O1} and o1 = s1 + {P2} }}".format(**params)),
+            WR_a("{{ S1[s1] -> O2[o2] : 0 <= s1 < {O1} and o2 = s1 }}".format(**params)),
         ])
     ]
 
     s2_ops = [
         pl.OpInfo("MxV", [
-            RD("{{ S2[s2] -> O1[o1] : 0 <= s2 < {O3} and s2 <= o1 < s2 + {F2}}}".format(**params)),
-            WR("{{ S2[s2] -> O3[o3] : 0 <= s2 < {O3} and o3 = s2 }}".format(**params)),
+            RD_a("{{ S2[s2] -> O1[o1] : 0 <= s2 < {O3} and s2 <= o1 < s2 + {F2}}}".format(**params)),
+            WR_a("{{ S2[s2] -> O3[o3] : 0 <= s2 < {O3} and o3 = s2 }}".format(**params)),
         ]),
         pl.OpInfo("ADD", [
-            RD("{{ S2[s2] -> O2[o2]   : 0 <= s2 < {O3} and o2  = s2 }}".format(**params)),
-            RD("{{ S2[s2] -> O3[o3]   : 0 <= s2 < {O3} and o3  = s2 }}".format(**params)),
-            WR("{{ S2[s2] -> OUT[out] : 0 <= s2 < {O3} and out = s2 }}".format(**params)),
+            RD_a("{{ S2[s2] -> O2[o2]   : 0 <= s2 < {O3} and o2  = s2 }}".format(**params)),
+            RD_a("{{ S2[s2] -> O3[o3]   : 0 <= s2 < {O3} and o3  = s2 }}".format(**params)),
+            WR_a("{{ S2[s2] -> OUT[out] : 0 <= s2 < {O3} and out = s2 }}".format(**params)),
         ])
     ]
 
@@ -365,34 +363,70 @@ def test_residual_1d():
         'O3':  (params.O3, ),
         'OUT': (params.OUT,),
     }
+    pprint(objs)
 
     pline = pl.Pipeline([s1, s2], objs, execute_ops=True)
 
+    conv1_ps = conv.Conv1DParams(
+        i = conv.Conv1DInParams(w=params.IN, d=1),
+        f = conv.Conv1DFiltParams(w=params.F1, d=1, l=1),
+        p = params.P1,
+        s = params.S1,
+        p_out = params.P2,
+    )
+    conv2_ps = conv.Conv1DParams(
+        i = conv1_ps.o.to_in(),
+        f = conv.Conv1DFiltParams(w=params.F2, d=1, l=1),
+        p = params.P2,
+        s = params.S2,
+        p_out = 0,
+    )
+
     pprint(params)
-    filters1 = np.random.rand(1, params.F1)
-    cconf1 = pl.CoreConf(filters1)
+    filters1 = np.random.rand(*conv1_ps.get_filters_shape())
+    filters1_m = filters1.reshape(conv1_ps.eval("(f.l, f.d*f.w)"))
+    cconf1 = pl.CoreConf(filters1_m)
 
-    filters2 = np.random.rand(1, params.F2)
-    cconf2 = pl.CoreConf(filters2)
+    filters2 = np.random.rand(*conv2_ps.get_filters_shape())
+    filters2_m = filters1.reshape(conv2_ps.eval("(f.l, f.d*f.w)"))
+    cconf2 = pl.CoreConf(filters2_m)
 
-    image = np.random.rand(params.IN)
-    image = np.pad(image, 1)
-
-    pline.configure([cconf1, cconf2])
+    image = np.random.rand(*conv1_ps.get_image_shape())
+    image = np.pad(image, conv1_ps.get_padding())
     inp = pline.get_object("IN")
     inp[...] = image
 
+    pline.configure([cconf1, cconf2])
+
     for i in range(12):
         iters = pline.tick()
-        print("*"*80)
+        # print("*"*80)
         for (s,i) in iters.items():
-            print("%s: %s" % (s, i))
-        print("*"*80)
+            pass
+            # print("%s: %s" % (s, i))
+        # print("*"*80)
+
+    pline_out = pline.get_object('OUT')
+    pline_o3 = pline.get_object('O3')
+
+
+    print(image.shape)
+    o1 = conv.conv1d_simple(image, filters1, conv1_ps)
+    o2 = np.copy(o1)
+    o1 = np.pad(o1, conv2_ps.get_padding())
+    o3 = conv.conv1d_simple(o1, filters2, conv2_ps)
+    out = o3 + o2
+    print(o3)
+    print(pline_o3)
+    np.testing.assert_allclose(o3[0,:], pline_o3)
+    np.testing.assert_allclose(out[0,:], pline_out)
+
+
 
 if __name__ == '__main__':
     # test_mxv()
-    test_conv1d()
+    # test_conv1d()
     # test_conv1d_conv1d()
     # test_conv2d()
     # test_conv2d_conv2d()
-    # ret = test_residual_1d()
+    ret = test_residual_1d()
