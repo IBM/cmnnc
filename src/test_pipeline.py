@@ -7,6 +7,7 @@
 from pprint import pprint
 import dataclasses as dc
 import typing
+import itertools
 
 import numpy as np
 import islpy as isl
@@ -365,7 +366,7 @@ def test_residual_1d():
     }
     pprint(objs)
 
-    pline = pl.Pipeline([s1, s2], objs, execute_ops=True)
+    pline = pl.Pipeline([s1, s2], objs, execute_ops=True, loop_inp_limit=1)
 
     conv1_ps = conv.Conv1DParams(
         i = conv.Conv1DInParams(w=params.IN, d=1),
@@ -388,7 +389,7 @@ def test_residual_1d():
     cconf1 = pl.CoreConf(filters1_m)
 
     filters2 = np.random.rand(*conv2_ps.get_filters_shape())
-    filters2_m = filters1.reshape(conv2_ps.eval("(f.l, f.d*f.w)"))
+    filters2_m = filters2.reshape(conv2_ps.eval("(f.l, f.d*f.w)"))
     cconf2 = pl.CoreConf(filters2_m)
 
     image = np.random.rand(*conv1_ps.get_image_shape())
@@ -398,28 +399,31 @@ def test_residual_1d():
 
     pline.configure([cconf1, cconf2])
 
-    for i in range(12):
-        iters = pline.tick()
-        # print("*"*80)
+    print_info = False
+    for iters in pline.tick_gen():
+        if print_info:
+            print("*"*80)
         for (s,i) in iters.items():
-            pass
-            # print("%s: %s" % (s, i))
-        # print("*"*80)
+            if print_info:
+                print("%s: %s" % (s, i))
+        if print_info:
+            print("*"*80)
+    print("%s> DONE" % ("-"*30,))
 
     pline_out = pline.get_object('OUT')
+    pline_o1 = pline.get_object('O1')
+    pline_o2 = pline.get_object('O2')
     pline_o3 = pline.get_object('O3')
 
 
-    print(image.shape)
     o1 = conv.conv1d_simple(image, filters1, conv1_ps)
     o2 = np.copy(o1)
     o1 = np.pad(o1, conv2_ps.get_padding())
+    np.testing.assert_allclose(o1[0,:], pline_o1, err_msg="O1 does not match")
     o3 = conv.conv1d_simple(o1, filters2, conv2_ps)
     out = o3 + o2
-    print(o3)
-    print(pline_o3)
-    np.testing.assert_allclose(o3[0,:], pline_o3)
-    np.testing.assert_allclose(out[0,:], pline_out)
+    np.testing.assert_allclose(o3[0,:], pline_o3, err_msg="O3 does not match")
+    np.testing.assert_allclose(out[0,:], pline_out, err_msg="OUT does not match")
 
 
 

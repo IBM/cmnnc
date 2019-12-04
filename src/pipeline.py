@@ -4,9 +4,26 @@
 #
 # vim: set expandtab softtabstop=4 tabstop=4 shiftwidth=4:
 
-import functools
+# pylint: disable-msg=invalid-name
+# pylint: disable-msg=missing-docstring
+# pylint: disable-msg=no-else-return
+# pylint: disable-msg=too-few-public-methods
+# pylint: disable-msg=too-many-locals
+# pylint: disable-msg=too-many-branches
+# pylint: disable-msg=too-many-instance-attributes
+# pylint: disable-msg=protected-access
+# pylint: disable-msg=line-too-long
+# pylint: disable-msg=no-else-break
+# pylint: disable-msg=attribute-defined-outside-init
+
+
+""" Pipeline execution
+
+The pipeline consists of stages that are executed on cores.
+
+"""
+
 import itertools
-import copy
 import typing
 import types
 import dataclasses as dc
@@ -16,11 +33,12 @@ import pprint as pp
 import numpy as np
 import astor as pyastor
 
-from isl_utils import isl_set_to_ast, isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
-from pyast_utils import StructureTupleYields
 import islpy as isl
 
-@dc.dataclass(init = False)
+from isl_utils import isl_set_to_ast, isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
+from pyast_utils import StructureTupleYields
+
+@dc.dataclass(init=False)
 class IslAccess:
     """ Wrapper for an isl access mapping: instance space -> object space
 
@@ -32,7 +50,7 @@ class IslAccess:
     access: isl.Map   # instance space -> object space
 
     def __init__(self, ty: str, acc: typing.Union[str, isl.Map]):
-        if ty != "RD" and ty != "WR":
+        if ty not in ("RD", "WR"):
             raise ValueError("Invalid access type: %s. Expecting 'RD' or 'WR'" % (ty,))
 
         if isinstance(acc, str):
@@ -50,10 +68,12 @@ class IslAccess:
 
     @staticmethod
     def RD(acc: typing.Union[str, isl.Map]) -> 'IslAccess':
+        """ Read ISL access """
         return IslAccess("RD", acc)
 
     @staticmethod
     def WR(acc: typing.Union[str, isl.Map]) -> 'IslAccess':
+        """ Write ISL access """
         return IslAccess("WR", acc)
 
     def get_stage_name(self) -> str:
@@ -68,7 +88,7 @@ class IslAccess:
     def get_obj_ndims(self) -> int:
         return self.access.space.dim(isl.dim_type.out)
 
-@dc.dataclass(init = False)
+@dc.dataclass(init=False)
 class OpInfo:
     """ Operation (polyhedral) info.
 
@@ -192,12 +212,11 @@ class StageInfo:
                     if objname in self.wo_objs:
                         # Object was previously written, error
                         raise ValueError("Object %s written in op %s (id:%d) but also written previously" % (objname, op.op_ty, op_id))
-                    elif objname in self.ro_objs:
+                    if objname in self.ro_objs:
                         raise ValueError("Object %s written in op %s (id:%d) previously read" % (objname, op.op_ty, op_id))
-                    elif objname in self.ro_objs:
+                    if objname in self.ro_objs:
                         raise ValueError("Object %s written in op %s (id:%d) previously write and read" % (objname, op.op_ty, op_id))
-                    else:
-                        self.wo_objs.add(objname)
+                    self.wo_objs.add(objname)
                 else: ValueError("Unknown access type: %s" % (acc.a_ty,))
 
     def get_stage_name(self) -> str:
@@ -226,7 +245,7 @@ class StageInfo:
 
         return accs[0].access
 
-def isl_map_to_pyfn(rel, fnname, s = None):
+def isl_map_to_pyfn(rel, fnname, s=None):
     """ Transform an isl map to a python function """
     ast = isl_map_to_ast(rel)
     py = isl2py_fn(ast, fnname)
@@ -240,7 +259,7 @@ def isl_map_to_pyfn(rel, fnname, s = None):
     # generated function so that they yield a 2-tuple of tuples, one for the
     # doimain and one for the image.
     if s is None:
-        s = (nin, nout) = tuple(rel.space.dim(x) for x in (isl.dim_type.in_, isl.dim_type.out))
+        s = (_nin, _nout) = tuple(rel.space.dim(x) for x in (isl.dim_type.in_, isl.dim_type.out))
     StructureTupleYields(s).visit(py)
     return py
 
@@ -256,7 +275,7 @@ def rel_a_iter(rel_iter):
     for ri in rel_iter():
         try:
             (idx, loc) = ri
-        except(ValueError):
+        except ValueError:
             print("%s: ri=%s cannot be packed into (idx,loc)" % (rel_iter.__name__, ri,))
             raise
         if idx == last_idx:
@@ -269,16 +288,16 @@ def rel_a_iter(rel_iter):
     if len(l) > 0:
         yield (last_idx, l)
 
-@dc.dataclass(init = False)
+@dc.dataclass(init=False)
 class ExecOp:
     ty: str
-    accesses: typing.Dict[str, typing.Dict[str, typing.Optional[typing.List[typing.Tuple[int, ...] ] ] ] ]
+    accesses: typing.Dict[str, typing.Dict[str, typing.Optional[typing.List[typing.Tuple[int, ...]]]]]
 
     def __init__(self, ty, rd_objs, wr_objs):
         self.ty = ty
         self.accesses = {}
-        self.accesses['RD'] = dict( (o, None) for o in rd_objs)
-        self.accesses['WR'] = dict( (o, None) for o in wr_objs)
+        self.accesses['RD'] = dict((o, None) for o in rd_objs)
+        self.accesses['WR'] = dict((o, None) for o in wr_objs)
 
 class AccessIterator:
     idx: typing.Tuple[int, ...]
@@ -319,21 +338,23 @@ class AccessIterator:
                 yield
 
         def decorator(fn):
-            wrapped_fn = lambda : update_state_dec(rel_a_iter(fn))
+            wrapped_fn = lambda: update_state_dec(rel_a_iter(fn))
             self.fns.append(wrapped_fn)
             return fn
         return decorator
 
-    def loop(self) -> typing.Iterator[typing.List[ExecOp]]:
+    def loop(self, inp_limit: typing.Optional[int] = None) -> typing.Iterator[typing.List[ExecOp]]:
         for inp in itertools.count():
-            iters = [ f() for f in self.fns ]
+            if inp_limit is not None and inp >= inp_limit:
+                break
+            iters = [f() for f in self.fns]
             niters = 0
             for _ in zip(*iters):
                 # print("%s: LOOP => %s " % (self.stage_name, self.idx_))
                 niters += 1
                 yield ((inp,) + self.idx_, self.ops)
                 self.reset_access()
-            assert(niters > 0)
+            assert niters > 0
 
 class LocToMaxIterIterator:
 
@@ -397,7 +418,7 @@ class LocToMaxIterIterator:
         return all(obj_rdy(idx, o, max_i) for (o, max_i) in self.obj_max_iter.items())
 
 class Stage:
-    def __init__(self, si: StageInfo, param_vals = None):
+    def __init__(self, si: StageInfo, param_vals=None):
         """ Initialize a stage
 
         si: StageInfo for this stage
@@ -420,6 +441,7 @@ class Stage:
         #  They provide decorators that are added in the generated code
         self.access_i = AccessIterator(self)
         self.loctomaxiter_i = LocToMaxIterIterator(self)
+
 
     def get_ro_objnames(self) -> typing.Set[str]:
         """ Return the objects that this stage reads (only) """
@@ -479,7 +501,7 @@ class Stage:
                 body.append(py)
 
         # generate loc_to_max_iter() functions for every object read by this stage
-        for (obj,rel) in self.loctomaxiter_rel.items():
+        for (obj, rel) in self.loctomaxiter_rel.items():
             if rel is not None:
                 fnname = "%s_%s_loc_to_max_iter" % (self.get_name(), obj)
                 py = isl_map_to_pyfn(rel, fnname)
@@ -541,12 +563,12 @@ class Stage:
 
         self.loctomaxiter_i.handle_write(wr_objstr, wr_idx)
 
-    def tick_gen(self):
+    def tick_gen(self, loop_inp_limit=None):
         """ Tick generator: executes a single tick
 
         yields the iteration executed or None if it was stalled
         """
-        for (idx, ops) in self.access_i.loop():
+        for (idx, ops) in self.access_i.loop(loop_inp_limit):
             while not self.reads_ready(idx):
                 print("%s: Stalling iteration %s." % (self.get_name(), idx))
                 yield None
@@ -577,7 +599,7 @@ class Core:
     xbar_m: typing.Optional[np.ndarray]
     # NB: For now, we just keep objects as np arrays. Eventually, we might want
     # to map them to a linear buffer representing the core's SRAM.
-    objs: typing.Dict[str,np.ndarray]
+    objs: typing.Dict[str, np.ndarray]
 
     def __init__(self):
         self.xbar_m = None
@@ -657,11 +679,11 @@ class Core:
 
         # NB: not sure if we need to deal with multi-dimensional objects or how
         # to. For now assume that objects stored on cores are 1D
-        ret = np.zeros(shape=(len(rd_is),) )
-        for i,idx in enumerate(rd_is):
+        ret = np.zeros(shape=(len(rd_is),))
+        for i, idx in enumerate(rd_is):
             # We check if there is a shape attribute to accomodate the stupid way we deal with intermediate results.
             # Once we fix this, we can remove the check.
-            assert isinstance(idx, tuple) and (getattr(obj, "shape", None) is None or len(idx) == len(obj.shape)) , "idx=%s obj.shape=%s" % (idx, obj.shape)
+            assert isinstance(idx, tuple) and (getattr(obj, "shape", None) is None or len(idx) == len(obj.shape)), "idx=%s obj.shape=%s" % (idx, obj.shape)
             ret[i] = obj[idx]
         return ret
 
@@ -736,11 +758,11 @@ class Core:
             raise
 
     def validate_write(self, objname: str, w_idx):
-        _= self.objs[objname][w_idx]
+        _ = self.objs[objname][w_idx]
 
 class Object:
     name: str # name of the object
-    shape: typing.Tuple[int,...] # shape of the object
+    shape: typing.Tuple[int, ...] # shape of the object
     reader: typing.Optional[str] # name of reader stage
     writer: typing.Optional[str] # name of writer stage
 
@@ -777,7 +799,7 @@ class Object:
 class Pipeline:
     """ Pipeline """
 
-    p_objs:   typing.Dict[str, Object] # object name -> Object
+    p_objs: typing.Dict[str, Object] # object name -> Object
     p_stages: typing.Dict[str, Stage]  # stage name -> Stage
 
     # Orphan objects are objects without a reader, and they are kept here
@@ -786,7 +808,8 @@ class Pipeline:
     def __init__(self,
                  stages: typing.List[Stage],
                  objs_shape: typing.Dict[str, typing.Tuple[int, ...]],
-                 execute_ops: bool = False):
+                 execute_ops: bool = False,
+                 loop_inp_limit: typing.Optional[int]=None):
         """ Initialize a Pipeline
 
         stages: stages of the pipeline.
@@ -795,10 +818,10 @@ class Pipeline:
         """
 
         # Initialize p_objs
-        self.p_objs = dict((n, Object(n,s)) for (n,s) in objs_shape.items())
+        self.p_objs = dict((n, Object(n, s)) for (n, s) in objs_shape.items())
 
         # Initialize p_stages, and attach stages to the pipeline
-        self.p_stages = dict( ((s.get_name(), s) for s in stages) )
+        self.p_stages = dict(((s.get_name(), s) for s in stages))
         if len(self.p_stages) != len(stages):
             raise ValueError("stages do not have unique names:\n%s" % (pp.pformat(stages)))
         for st in stages:
@@ -859,8 +882,9 @@ class Pipeline:
         for st in stages:
             st.build_module()
 
+        self.loop_inp_limit = loop_inp_limit
         # Start the generators for every stage
-        self.stage_ticks = [ (s,s.tick_gen()) for s in stages ]
+        self.stage_ticks = dict(((s, s.tick_gen(self.loop_inp_limit)) for s in stages))
         self.nticks = 0
 
         self.stages = stages
@@ -872,7 +896,7 @@ class Pipeline:
 
         corecnfs: configuration of cores (expected in the same order as stages)
         """
-        for (cconf,stage) in zip(corecnfs, self.stages):
+        for (cconf, stage) in zip(corecnfs, self.stages):
             stage.core.configure(cconf)
 
     def handle_write(self, stage, wr_obj, wr_idx, wr_val):
@@ -915,14 +939,35 @@ class Pipeline:
     def tick(self):
         s = "TICK: %d" % (self.nticks,)
         # print("="*10, s, "="*(80-10-len(s)-2))
+
         ret = {}
-        for (s,t) in self.stage_ticks:
-            it = next(t)
+
+        stage_keys = list(self.stage_ticks.keys())
+        if len(stage_keys) == 0:
+            raise StopIteration("No available stages to execute")
+
+        for s in stage_keys:
+            t = self.stage_ticks[s]
+            try:
+                it = next(t)
+                #print("Stage: %s executed iteration %s" % (s.get_name(), it))
+            except StopIteration:
+                # stage done (typically, because we set a limit)
+                print("****** Stage %s done!" % (s.get_name(),))
+                del self.stage_ticks[s]
+                it = None
+
             ret[s.get_name()] = it
-            #print("Stage: %s executed iteration %s" % (s.get_name(), it))
 
         print("***** All stages ticked. Flushing writes.")
         self.flush_writes()
         self.nticks += 1
         print("="*80)
         return ret
+
+    def tick_gen(self):
+        while True:
+            try:
+                yield self.tick()
+            except StopIteration:
+                return
