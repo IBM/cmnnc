@@ -7,6 +7,9 @@
 import onnx
 from onnx_util import  conv_params_from_onnx_node
 
+# if we want to incrementally build and test the graph, this might help: 
+# https://github.com/microsoft/onnxruntime/issues/1455
+
 def test_resnet():
     m = onnx.load("onnx/resnet20-cifar.onnx")
     graph = m.graph

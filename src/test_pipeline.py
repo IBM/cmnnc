@@ -13,16 +13,11 @@ import numpy as np
 import islpy as isl
 
 import pipeline as pl
+from util import xparams
 import conv
 
 RD_a = pl.IslAccess.RD
 WR_a = pl.IslAccess.WR
-
-class xdict(dict):
-    """dot.notation access to dictionary attributes"""
-    __getattr__ = dict.get
-    __setattr__ = dict.__setitem__
-    __delattr__ = dict.__delitem__
 
 
 def test_mxv():
@@ -93,7 +88,7 @@ def test_conv1d():
     cconf = pl.CoreConf(filters1_m)
 
     # Set input
-    image1 = np.random.rand(*conv1_ps.get_image_shape())
+    image1 = np.random.rand(*conv1_ps.get_input_shape())
     image1 = np.pad(image1, conv1_ps.get_padding())
     inp = pline.get_object('in')
     inp[...] = image1
@@ -175,8 +170,8 @@ def test_conv2d():
     stage1 = pl.Stage(pl.StageInfo(s1_ops))
 
     objs = {
-        'V1': conv1_ps.get_in_shape(),
-        'V2': conv1_ps.get_out_shape(),
+        'V1': conv1_ps.get_input_shape(pad=True),
+        'V2': conv1_ps.get_output_shape(),
     }
 
     p = pl.Pipeline([stage1], objs, execute_ops=True)
@@ -187,7 +182,7 @@ def test_conv2d():
     cconf = pl.CoreConf(filters_m)
 
     # Set input
-    image1 = np.random.rand(*conv1_ps.get_image_shape())
+    image1 = np.random.rand(*conv1_ps.get_input_shape())
     image1 = np.pad(image1, conv1_ps.get_padding())
     vals1 = p.get_object('V1')
     vals1[...] = image1
@@ -234,9 +229,9 @@ def test_conv2d_conv2d():
     stage2 = pl.Stage(pl.StageInfo(s2_ops))
 
     objs = {
-        'V1': conv1_ps.get_in_shape(),
-        'V2': conv2_ps.get_in_shape(),
-        'V3': conv2_ps.get_out_shape(),
+        'V1': conv1_ps.get_input_shape(pad=True),
+        'V2': conv2_ps.get_input_shape(pad=True),
+        'V3': conv2_ps.get_output_shape(),
     }
 
     p = pl.Pipeline([stage1,stage2], objs, execute_ops=True)
@@ -249,7 +244,7 @@ def test_conv2d_conv2d():
     filters_m2 = filters2.reshape(conv2_ps.eval("(f.l, f.d*f.h*f.w)"))
     cconf2 = pl.CoreConf(filters_m2)
 
-    image = np.random.rand(*conv1_ps.get_image_shape())
+    image = np.random.rand(*conv1_ps.get_input_shape())
     image = np.pad(image, conv1_ps.get_padding())
 
     p.configure([cconf1,cconf2])
@@ -277,6 +272,21 @@ def test_conv2d_conv2d():
     output2 = conv.conv2d_simple(output1, filters2, conv2_ps)
     np.testing.assert_allclose(output2, vals3)
     print("DONE!")
+
+def get_params():
+    params = xparams()
+    # IN: input size (w/o padding)
+    # F1: filter size
+    # P1: padding
+    params.update({ 'IN': 10, 'F1': 3, 'P1': 1, 'S1': 1})
+    # O1: output 1 size
+    params.compute("O1",  "(IN - F1 + 2*P1) // S1 + 1")
+    params.compute("O2",  "O1")
+    #
+    params.update({'F2': 3, 'P2': 1, 'S2': 1})
+    params.compute("O3",  "(O1 - F2 + 2*P2) // S2 + 1")
+    params.compute("OUT",  "max(O2,O3)")
+    return params
 
 def test_residual_1d():
     #  CONV1D ---> CONV1D ---> ADD
@@ -308,24 +318,7 @@ def test_residual_1d():
     # Objects have a single writer and reader
     # Stages might read or write more than one objects
 
-    params = xdict()
-    def params_compute(p, expr):
-        params[p] = eval(expr, None, params)
-
-    def params_eval(expr):
-        return eval(expr, None, params)
-
-    # IN: input size (w/o padding)
-    # F1: filter size
-    # P1: padding
-    params.update({ 'IN': 10, 'F1': 3, 'P1': 1, 'S1': 1})
-    # O1: output 1 size
-    params_compute("O1",  "(IN - F1 + 2*P1) // S1 + 1")
-    params_compute("O2",  "O1")
-    #
-    params.update({'F2': 3, 'P2': 1, 'S2': 1})
-    params_compute("O3",  "(O1 - F2 + 2*P2) // S2 + 1")
-    params_compute("OUT",  "max(O2,O3)")
+    params = get_params()
 
     s1_ops = [
         pl.OpInfo("MxV", [
@@ -358,8 +351,8 @@ def test_residual_1d():
     assert s1.si.rw_objs == set()
 
     objs = {
-        'IN':  (params_eval("IN + 2*P1"), ),
-        'O1':  (params_eval("O1 + 2*P2"), ),
+        'IN':  (params.eval("IN + 2*P1"), ),
+        'O1':  (params.eval("O1 + 2*P2"), ),
         'O2':  (params.O2, ),
         'O3':  (params.O3, ),
         'OUT': (params.OUT,),
@@ -392,7 +385,7 @@ def test_residual_1d():
     filters2_m = filters2.reshape(conv2_ps.eval("(f.l, f.d*f.w)"))
     cconf2 = pl.CoreConf(filters2_m)
 
-    image = np.random.rand(*conv1_ps.get_image_shape())
+    image = np.random.rand(*conv1_ps.get_input_shape())
     image = np.pad(image, conv1_ps.get_padding())
     inp = pline.get_object("IN")
     inp[...] = image
@@ -433,4 +426,5 @@ if __name__ == '__main__':
     # test_conv1d_conv1d()
     # test_conv2d()
     # test_conv2d_conv2d()
-    ret = test_residual_1d()
+    # test_residual_1d()
+    pass

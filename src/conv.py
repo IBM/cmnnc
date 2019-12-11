@@ -80,27 +80,25 @@ class Conv2DParams:
         if self.i.d != self.f.d:
             raise ValueError("input d=%d and filter d=%d parameters do not match", (self.i.d, self.f.d))
 
-
-    def get_in_shape(self):
-        """ Get the input shape (including padding) as a (D,H,W) tuple """
-        return (self.i.d, self.i.h + 2*self.p, self.i.w + 2*self.p)
-
-    def get_out_shape(self):
-        """ Get the output shape as a (D,H,W) tuple """
-        # XXX: Don't we need to consider p_out here?
-        return (self.o.d, self.o.h, self.o.w)
-
     def get_filters_shape(self):
         """ Get the shape of the filters as a (L,D,H,W) tuple """
         return (self.f.l, self.f.d, self.f.h, self.f.w)
 
-    def get_image_shape(self):
-        """ Get the shape of the image (no padding) as a (D,H,W) tuple """
-        return (self.i.d, self.i.h, self.i.w)
-
     def get_padding(self):
         """ Return something that you can pass to numpy.pad() """
         return ((0,0), (self.p, self.p), (self.p, self.p))
+
+    def get_input_shape(self, *, pad: bool = False):
+        """ Get input shape (pad determines whether padding is considered or not) """
+        ph = 2*self.p if pad else 0
+        pw = 2*self.p if pad else 0
+        return (self.i.d, self.i.h + ph, self.i.w + pw)
+
+    def get_output_shape(self, *, pad: bool = False):
+        """ Get output shape (pad determines whether padding is considered or not) """
+        ph = 2*self.p_out if pad else 0
+        pw = 2*self.p_out if pad else 0
+        return (self.o.d, self.o.h + ph, self.o.w + pw)
 
     def eval(self, e):
         return eval(e, self.__dict__)
@@ -168,7 +166,7 @@ def conv2d_simple(image, filters, conv_params):
 def conv2d_mxv(image, filters, conv_params):
     # reshape the filters so that we can use MxV
     filters_m = filters.reshape(conv_params.eval("(f.l, f.d*f.h*f.w)"))
-    output_shape = conv_params.get_out_shape()
+    output_shape = conv_params.get_output_shape()
     output = np.ndarray(output_shape)
     for oh in range(conv_params.o.h):
         for ow in range(conv_params.o.w):
@@ -248,22 +246,19 @@ class Conv1DParams:
         """ Get the shape of the filters as a (L,D,W) tuple """
         return (self.f.l, self.f.d, self.f.w)
 
-    def get_image_shape(self):
-        """ Get the shape of the image (no padding) as a (D,W) tuple """
-        return (self.i.d, self.i.w)
-
     def get_padding(self):
         """ Return something that you can pass to numpy.pad() """
         return ((0,0), (self.p, self.p))
 
-    def get_in_shape(self):
-        """ Get the input shape (including padding) as a (D,W) tuple """
-        return (self.i.d, self.i.w + 2*self.p)
+    def get_input_shape(self, *, pad: bool = False):
+        """ Get input shape (pad determines whether padding is considered or not) """
+        pw = 2*self.p if pad else 0
+        return (self.i.d, self.i.w)
 
-    def get_out_shape(self):
-        """ Get the output shape as a (D,H,W) tuple """
-        # XXX: Don't we need to consider p_out, here?
-        return (self.o.d, self.o.w)
+    def get_output_shape(self, *, pad: bool = False):
+        """ Get output shape (pad determines whether padding is considered or not) """
+        pw = 2*self.p_out if pad else 0
+        return (self.o.d, self.o.w + pw)
 
 def conv1d_simple(image, filters, params: Conv1DParams):
     output_shape = params.eval("o.d, o.w")

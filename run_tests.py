@@ -11,6 +11,9 @@ import pytest
 
 sys.path.append("./src")
 
+# If you want no messages:
+#  ./run_tests.py --capture=fd --show-capture=no
+
 if __name__ == '__main__':
     args  = []
     args.extend(["-W","ignore::DeprecationWarning"])

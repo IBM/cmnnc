@@ -23,4 +23,6 @@ onnx graph
 
 # Issues
  - batching: CONV operator's first dimension is batch size
- - multiple input nodes (residuals)
+ ✓ multiple input nodes (residuals)
+ - input/output (DMA)
+ - overwrite protection (WAR dependencies)

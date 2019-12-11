@@ -35,7 +35,7 @@ import astor as pyastor
 
 import islpy as isl
 
-from isl_utils import isl_set_to_ast, isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
+from isl_utils import isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
 from pyast_utils import StructureTupleYields
 
 @dc.dataclass(init=False)
@@ -660,7 +660,7 @@ class Core:
                     try:
                         _ = obj[idx]
                     except:
-                        print("Failed to access %s (shape=%s) on %s" % (objstr, obj.shape, idx))
+                        print("Failed to access %s (shape=%s) on %s" % (rd_objstr, obj.shape, idx))
                         raise
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
                     assert wr_objstr not in ret
@@ -809,7 +809,7 @@ class Pipeline:
                  stages: typing.List[Stage],
                  objs_shape: typing.Dict[str, typing.Tuple[int, ...]],
                  execute_ops: bool = False,
-                 loop_inp_limit: typing.Optional[int]=None):
+                 loop_inp_limit: typing.Optional[int] = None):
         """ Initialize a Pipeline
 
         stages: stages of the pipeline.
@@ -832,7 +832,7 @@ class Pipeline:
         for st in stages:
             for ro_objname in st.get_ro_objnames():
                 if ro_objname not in self.p_objs:
-                    raise ValueError("Object %s read by stage %s, but not provided in initialization" % (rd_objname, st.get_name()))
+                    raise ValueError("Object %s read by stage %s, but not provided in initialization" % (ro_objname, st.get_name()))
                 obj = self.p_objs[ro_objname]
                 obj.set_reader(st.get_name())
 

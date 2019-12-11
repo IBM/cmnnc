@@ -13,18 +13,7 @@ import onnxruntime as onnxrt
 import conv
 from onnx_test_models import mk_conv as onnx_mk_conv
 from onnx_test_models import mk_conv_conv as onnx_mk_conv_conv
-import onnx_util
-
-def onnx_rand_in(model):
-    """ Create random inputs for a given ONNX model """
-    ret = {}
-    for inp in model.graph.input:
-        tensor_ty = inp.type.tensor_type
-        elem_type = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[tensor_ty.elem_type]
-        shape = [d.dim_value for d in tensor_ty.shape.dim]
-        ret[inp.name] = np.random.random(shape).astype(elem_type)
-        # print(inp.name)
-    return ret
+from onnx_util import onnx_get_init_data, onnx_rand_in
 
 class TestConv(unittest.TestCase):
     def __init__(self, *args, **kwargs):
@@ -44,7 +33,7 @@ class TestConv(unittest.TestCase):
         # Initalize random filters and image
         conv_ps = self.conv_ps
         filters = np.random.rand(*conv_ps.get_filters_shape())
-        image   = np.random.rand(*conv_ps.get_image_shape())
+        image   = np.random.rand(*conv_ps.get_input_shape())
         image   = np.pad(image, conv_ps.get_padding())
 
         output_simple = conv.conv2d_simple(image, filters, conv_ps)
@@ -60,7 +49,7 @@ class TestConv(unittest.TestCase):
         out = sess.run(None, inp)
         image  = np.pad(inp["conv1.in"][0], self.conv_ps.get_padding())
         filters = onnx.numpy_helper.to_array(
-            onnx_util.get_init_data(onnx_model.graph, "conv1.ws")
+            onnx_get_init_data(onnx_model.graph, "conv1.ws")
         )
         exp_out = conv.conv2d_mxv(image, filters, self.conv_ps)
         np.testing.assert_allclose(out[0][0], exp_out, rtol=1e-06)
@@ -98,10 +87,10 @@ class TestConvConv(unittest.TestCase):
 
         image  = np.pad(inp["conv1.in"][0], self.conv1_ps.get_padding())
         filters1 = onnx.numpy_helper.to_array(
-            onnx_util.get_init_data(onnx_model.graph, "conv1.ws")
+            onnx_get_init_data(onnx_model.graph, "conv1.ws")
         )
         filters2 = onnx.numpy_helper.to_array(
-            onnx_util.get_init_data(onnx_model.graph, "conv2.ws")
+            onnx_get_init_data(onnx_model.graph, "conv2.ws")
         )
 
         exp_out1 = conv.conv2d_mxv(image, filters1, self.conv1_ps)

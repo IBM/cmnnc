@@ -5,16 +5,31 @@
 # vim: set expandtab softtabstop=4 tabstop=4 shiftwidth=4:
 
 from itertools import chain
+import typing
+
 import onnx
+import numpy as np
 
 import conv
+from pipeline import StageInfo
 
 # ONNX helpers
 
-def get_init_data(graph, name):
+def onnx_get_init_data(graph, name):
     for init in graph.initializer:
         if init.name == name:
             return init
+
+def onnx_rand_in(model):
+    """ Create random inputs for a given ONNX model """
+    ret = {}
+    for inp in model.graph.input:
+        tensor_ty = inp.type.tensor_type
+        elem_type = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[tensor_ty.elem_type]
+        shape = [d.dim_value for d in tensor_ty.shape.dim]
+        ret[inp.name] = np.random.random(shape).astype(elem_type)
+        # print(inp.name)
+    return ret
 
 def conv_params_from_onnx_node(graph, node):
     """ Create a Conv2DParams structure from an ONNX convolution node """
@@ -91,3 +106,4 @@ def conv_params_from_onnx_node(graph, node):
     )
 
     #print("%s" % (conv_ps,))
+
