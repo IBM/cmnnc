@@ -185,6 +185,7 @@ def mk_simple_residual(conv1_ps: conv.Conv2DParams, conv2_ps: conv.Conv2DParams)
         ["v1"],  # Outputs
         # Attributes
         pads = [conv1_ps.p]*4,
+        name = "Conv1",
     )
 
     conv2 = onnx.helper.make_node(
@@ -193,6 +194,7 @@ def mk_simple_residual(conv1_ps: conv.Conv2DParams, conv2_ps: conv.Conv2DParams)
         ["v2"],        # Outputs
         # Attributes
         pads = [conv2_ps.p]*4,
+        name = "Conv2",
     )
 
     add = onnx.helper.make_node(
@@ -200,6 +202,7 @@ def mk_simple_residual(conv1_ps: conv.Conv2DParams, conv2_ps: conv.Conv2DParams)
         ["v1",  "v2"], # Inputs
         ["out"],       # Outputs
         # Attributes
+        name = "Add2",
     )
 
     # Tensor initlializer values
