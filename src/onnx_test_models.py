@@ -1,4 +1,4 @@
-# Copyright (c) 2019, IBM Research.
+# Copyright (c) 2019-2020, IBM Research.
 #
 # Author: Kornilios Kourtis <kou@zurich.ibm.com>
 #
@@ -221,6 +221,8 @@ def mk_simple_residual(conv1_ps: conv.Conv2DParams, conv2_ps: conv.Conv2DParams)
         [tensor_vs['out']],    # outputs
         [tensor_init_vs['w1'], # Initializers
          tensor_init_vs['w2']],
+        None,                  # doc_string
+        [tensor_vs['v1'], tensor_vs['v2']] # value_info
     )
 
     model_def = onnx.helper.make_model(graph_def)

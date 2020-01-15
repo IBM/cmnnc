@@ -1,4 +1,4 @@
-# Copyright (c) 2019, IBM Research.
+# Copyright (c) 2019-2020, IBM Research.
 #
 # Author: Kornilios Kourtis <kou@zurich.ibm.com>
 #
@@ -15,6 +15,7 @@ import islpy as isl
 import pipeline as pl
 from util import xparams
 import conv
+from op_info import OpInfo_CONV
 
 RD_a = pl.IslAccess.RD
 WR_a = pl.IslAccess.WR
@@ -163,9 +164,9 @@ def test_conv2d():
         s = 1,
         p_out = 0)
 
-    (s1_rd_a, s1_wr_a) = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
+
     s1_ops = [
-        pl.OpInfo("MxV", [ RD_a(s1_rd_a), WR_a(s1_wr_a) ]),
+        OpInfo_CONV(conv1_ps, s_id="S1", vin_id="V1", vout_id="V2")
     ]
     stage1 = pl.Stage(pl.StageInfo(s1_ops))
 
@@ -219,13 +220,14 @@ def test_conv2d_conv2d():
         p_out = 0,
         s = 1)
 
-    (s1_rd_a, s1_wr_a) = conv1_ps.get_rd_wr_a(s_id=1, vin_id=1, vout_id=2)
-    (s2_rd_a, s2_wr_a) = conv2_ps.get_rd_wr_a(s_id=2, vin_id=2, vout_id=3)
-
-    s1_ops = [ pl.OpInfo("MxV", [RD_a(s1_rd_a), WR_a(s1_wr_a) ]), ]
+    s1_ops = [
+        OpInfo_CONV(conv1_ps, s_id="S1", vin_id="V1", vout_id="V2"),
+    ]
     stage1 = pl.Stage(pl.StageInfo(s1_ops))
 
-    s2_ops = [ pl.OpInfo("MxV", [RD_a(s2_rd_a), WR_a(s2_wr_a) ]), ]
+    s2_ops = [
+        OpInfo_CONV(conv2_ps, s_id="S2", vin_id="V2", vout_id="V3"),
+    ]
     stage2 = pl.Stage(pl.StageInfo(s2_ops))
 
     objs = {

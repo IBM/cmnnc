@@ -1,4 +1,4 @@
-# Copyright (c) 2019, IBM Research.
+# Copyright (c) 2019-2020, IBM Research.
 #
 # Author: Kornilios Kourtis <kou@zurich.ibm.com>
 #
@@ -12,10 +12,11 @@ import onnxruntime as onnxrt
 import onnx
 
 import conv
-from pipeline import StageInfo
+import pipeline as pl
+from op_info import OpInfo, OpInfo_CONV, OpInfo_ADD
+
 from onnx_test_models import mk_simple_residual as onnx_mk_simple_residual
 from onnx_util import onnx_rand_in
-
 
 
 # TODO: move this to another file when done
@@ -31,6 +32,99 @@ class Partition:
         self.nis = list(nis)
 
 
+class StageInfoBuilder:
+    def __init__(self, graph: 'OnnxGraph', pid: int):
+        # Initial state:
+        self.graph = graph
+        self.pid = pid
+
+        # State that is set when the first op (which is a Conv) is proccessed:
+        self.conv_domain = None
+        # Convolution parameters
+        # NB: We are hardcoding knowledge about this being a convolutional
+        # network to help as produce the ISL equations. It should be possible,
+        # however, to do this in a more generic way.
+        self.b = None # batch size
+        self.conv_ps = None # convolution parameters
+
+    def get_conv_opinfo_(self, node) -> OpInfo:
+        """ Get OpInfo for the first (and only) convolution of the partition """ 
+        # TODO: properly deal with padding and stride params.
+        attrs = dict((a.name, a) for a in node.attribute)
+        if 'pads' in attrs:
+            assert all(x == 1 for x in attrs['pads'].ints)
+        if 'stride' in attrs:
+            assert all(x == 1 for x in attrs['stride'].ints)
+        (padding, stride) = (1, 1)
+
+        graph = self.graph
+        init_tvs = graph.init_tvs
+        (input_name,)   = (x for x in node.input if x not in init_tvs)
+        (weights_name,) = (x for x in node.input if x in init_tvs)
+        (output_name,)  = node.output
+        input_vi = graph.get_value_info(input_name)
+        weights_tv = graph.init_tvs[weights_name]
+
+        (self.b, cd, ch, cw) = (x.dim_value for x in input_vi.type.tensor_type.shape.dim)
+        (fl, fd, fh, fw) = tuple(weights_tv.dims)
+        self.conv_ps = conv.Conv2DParams(
+            p = padding,
+            s = stride,
+            i = conv.Conv2DInParams(w=cw, h=ch, d=cd),
+            f = conv.Conv2DFiltParams(w=fw, h=fh, d=fd, l=fl),
+            p_out = 0,
+        )
+
+        # TODO: The ONNX Conv operator has a batch size. Seems to me that the
+        # best thing to do would be to deal with batch size externally (i.e.,
+        # at an external loop that performs the transfers from/to the
+        # accelerator), and transform the ONNX nodes to have a batch size of 1.
+        assert self.b == 1
+
+        oi = OpInfo_CONV(self.conv_ps,
+                           s_id="S%d" % (self.pid,),
+                           vin_id=input_name,
+                           vout_id=output_name)
+        self.conv_domain = oi.get_domain()
+        return oi
+
+    def get_add_opinfo_(self, node) -> OpInfo:
+        (in1, in2) = node.input
+        (out,) =  node.output
+        a_shape = self.graph.get_value_shape(in1)
+        b_shape = self.graph.get_value_shape(in2)
+        y_shape = self.graph.get_value_shape(out)
+        assert a_shape == b_shape
+        assert a_shape == y_shape
+        ret = OpInfo_ADD(self.conv_domain, a_shape, in1, in2, out)
+        return ret
+
+    def get_node_opinfo(self, nid: int) -> OpInfo:
+        """ Return pipeline OpInfo for a given node.
+
+        I.e., we translate a single ONNX node into a pipeline operation.
+        """
+        node = self.graph.g.node[nid]
+        # The first (and only the first) node of the partition has to be a CONV
+        # node.  self.get_conv_opinfo_() will return the OpInfo for the node,
+        # and also set fields such as self.conv_domain
+        if self.conv_domain is None:
+            if node.op_type != 'Conv':
+                raise ValueError("First partition node is not Conv (%s)" % (node.op_type,))
+            return self.get_conv_opinfo_(node)
+        elif node.op_type == 'Conv':
+            raise ValueError("Conv node can only be the first in a partition")
+        elif node.op_type == 'Add':
+            return self.get_add_opinfo_(node)
+        else:
+            raise ValueError("Unknown node type %s" % (node.op_type, ))
+
+    def get_stage_info(self) -> pl.StageInfo:
+        """ Return the stage info the specified partition """
+        partition = self.graph.partitions[self.pid]
+        ois = [self.get_node_opinfo(ni) for ni in partition.nis]
+        return pl.StageInfo(ois)
+
 class OnnxGraph:
     """ This class wraps an ONNX module so that it can be used for our purposes """
     m: onnx.ModelProto
@@ -38,6 +132,15 @@ class OnnxGraph:
     # be the output of a single node
     inps: typing.Dict[EdgeName, typing.List[NodeId]]
     outs: typing.Dict[EdgeName, NodeId]
+    partitions: typing.List[Partition]
+
+    # Value info for graph input, output, and intermediate valudes
+    input_vis: typing.Dict[str, onnx.helper.ValueInfoProto]
+    output_vis: typing.Dict[str, onnx.helper.ValueInfoProto]
+    inter_vis: typing.Dict[str, onnx.helper.ValueInfoProto]
+    # initializer tensor values
+    init_tvs: typing.Dict[str, onnx.helper.TensorProto]
+
 
     def __init__(self, onnx_m):
         self.m = onnx_m
@@ -58,10 +161,25 @@ class OnnxGraph:
 
         self.partitions = self.partition()
 
+        self.input_vis =  dict((e.name,e) for e in self.g.input)
+        self.output_vis = dict((e.name,e) for e in self.g.output)
+        self.inter_vis = dict((e.name,e) for e in self.g.value_info)
+        self.init_tvs = dict((v.name, v) for v in self.g.initializer)
+
     @property
     def g(self):
         """ shortcut for onnx graph """
         return self.m.graph
+
+    def get_value_info(self, e: str):
+        for d in (self.input_vis, self.output_vis, self.inter_vis):
+            if e in d:
+                return d[e]
+        raise ValueError("No value info for %s" % (e,))
+
+    def get_value_shape(self, e: str) -> typing.Tuple[int,...]:
+        shape = self.get_value_info(e).type.tensor_type.shape
+        return tuple(x.dim_value for x in shape.dim)
 
     def get_src_nis(self) -> typing.Iterator[NodeId]:
         """ Return source node ids
@@ -146,13 +264,14 @@ class OnnxGraph:
             elif node.op_type in ('Add',):
                 part.nis.append(nid)
             else:
-                raise ValueError("Uknown node type %s" % (node.op_type, ))
+                raise ValueError("Unknown node type %s" % (node.op_type, ))
 
         partlist.append(part)
         return partlist
 
-def onnx_partition(onnx_model) -> typing.List[StageInfo]:
-    pass
+    def get_stage_infos(self):
+        for pid in range(len(self.partitions)):
+            yield StageInfoBuilder(self, pid).get_stage_info()
 
 def test_onnx_residual_2d():
     # Create the following ONNX graph:
@@ -185,8 +304,15 @@ def test_onnx_residual_2d():
 
     # Parse onnx graph to create a pipeline
     graph = OnnxGraph(onnx_m)
+    pprint(graph.partitions)
 
-    # Configure the pipeline based using the ONNX initializers
+    vals = {}
+    objects = {}
+    stages = []
+    for si in graph.get_stage_infos():
+         stage = pl.Stage(si, vals)
+
+    # TODO: Configure the pipeline using the ONNX initializer data
 
     # Execute the pipeline
     # image  = np.pad(inp["in"][0], self.conv_ps.get_padding())

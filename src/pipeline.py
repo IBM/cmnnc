@@ -1,4 +1,4 @@
-# Copyright (c) 2019, IBM Research.
+# Copyright (c) 2019-2020, IBM Research.
 #
 # Author: Kornilios Kourtis <kou@zurich.ibm.com>
 #
@@ -35,120 +35,10 @@ import astor as pyastor
 
 import islpy as isl
 
+from op_info import OpInfo, IslAccess
 from isl_utils import isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
 from pyast_utils import StructureTupleYields
 
-@dc.dataclass(init=False)
-class IslAccess:
-    """ Wrapper for an isl access mapping: instance space -> object space
-
-    The convention is that the first name of the mapping is the stage, and the
-    second is the object (see get_{stage,obj}_name).
-    """
-
-    a_ty: str         # RD or WR
-    access: isl.Map   # instance space -> object space
-
-    def __init__(self, ty: str, acc: typing.Union[str, isl.Map]):
-        if ty not in ("RD", "WR"):
-            raise ValueError("Invalid access type: %s. Expecting 'RD' or 'WR'" % (ty,))
-
-        if isinstance(acc, str):
-            try:
-                acc = isl.Map(acc)
-            except:
-                print("Failed to create an isl.Map from %s" % (acc,))
-                raise
-
-        if not isinstance(acc, isl.Map):
-            raise ValueError("Invalid access type: %s. Expecting str or isl.Map" % (type(acc),))
-
-        self.a_ty = ty
-        self.access = acc
-
-    @staticmethod
-    def RD(acc: typing.Union[str, isl.Map]) -> 'IslAccess':
-        """ Read ISL access """
-        return IslAccess("RD", acc)
-
-    @staticmethod
-    def WR(acc: typing.Union[str, isl.Map]) -> 'IslAccess':
-        """ Write ISL access """
-        return IslAccess("WR", acc)
-
-    def get_stage_name(self) -> str:
-        return self.access.get_tuple_name(isl.dim_type.in_)
-
-    def get_obj_name(self) -> str:
-        return self.access.get_tuple_name(isl.dim_type.out)
-
-    def get_idx_ndims(self) -> int:
-        return self.access.space.dim(isl.dim_type.in_)
-
-    def get_obj_ndims(self) -> int:
-        return self.access.space.dim(isl.dim_type.out)
-
-@dc.dataclass(init=False)
-class OpInfo:
-    """ Operation (polyhedral) info.
-
-    Object accesses for a given operation
-
-    NB: Each IslAccess is per-object, ie., is a single isl.Map for every object.
-    Alternatively, we could use a single isl.UnionMap, but the latter seems
-    more complicated.
-    """
-    op_ty: str
-    accesses: typing.List[IslAccess]
-
-    def __init__(self, op_ty: str, accesses: typing.List[IslAccess]):
-        self.op_ty = op_ty
-        self.accesses = accesses
-
-        # all accesses must have the same stage, and domain
-        # (The first check might be redundant because I think having the same
-        # domain, implies having the same stage name)
-        stage = self.get_stage_name()
-        assert all((a.get_stage_name() == stage for a in self.accesses))
-
-        # It would be good if we could verify that all accesses operate in the
-        # same domain, but this does not work very well.
-        #
-        # For example, enabling the code below for the test_conv1d() test fails with:
-        # | ValueError: Accesses domains do not match:
-        # |   dom:[n, k, p] -> { S1[o1] : k > 0 and 0 <= o1 <= n - k + 2p } acc:IslAccess(a_ty='RD', access=Map("[n, k, p] -> { S1[o1] -> in1[j] : 0 <= o1 <= n - k + 2p and o1 <= j < k + o1 }"))
-        # |   dom:[n, k, p] -> { S1[o1] : 0 <= o1 <= n - k + 2p } acc:IslAccess(a_ty='WR', access=Map("[n, k, p] -> { S1[o1] -> in2[j = p + o1] : 0 <= o1 <= n - k + 2p }"))
-        #
-        # There are probably ways to address this but for now we just check
-        # that all the access iterators provide the same index.
-        #
-        # domain = self.get_domain()
-        # if not all((a.access.domain() == domain for a in self.accesses)):
-        #     s = "Accesses domains do not match:"
-        #     for a in self.accesses:
-        #         s += "\n   dom:%s acc:%s" % (a.access.domain(), a)
-        #     raise ValueError(s)
-
-    def get_stage_name(self) -> str:
-        return self.accesses[0].get_stage_name()
-
-    def get_domain(self) -> isl.Map:
-        return self.accesses[0].access.domain()
-
-    def filter_accesses(self, a_ty: str) -> typing.Iterator[IslAccess]:
-        return filter(lambda a: a.a_ty == a_ty, self.accesses)
-
-    def rd_accesses(self) -> typing.Iterator[IslAccess]:
-        return self.filter_accesses("RD")
-
-    def wr_accesses(self) -> typing.Iterator[IslAccess]:
-        return self.filter_accesses("WR")
-
-    def rd_objs(self):
-        return (a.get_obj_name() for a in self.rd_accesses())
-
-    def wr_objs(self):
-        return (a.get_obj_name() for a in self.wr_accesses())
 
 @dc.dataclass(init=False)
 class StageInfo:
@@ -168,7 +58,7 @@ class StageInfo:
     that are represented as polyhedral access relations.
 
     As we add operations, we maintain unconnected inputs and outputs. (An
-    unconnected input is an ojbect that is read, but not written within this
+    unconnected input is an object that is read, but not written within this
     stage, and vice-versa for unconnected outputs). These are the read and
     write access relations for a stage.
     """
@@ -178,6 +68,8 @@ class StageInfo:
     rw_objs: typing.Set[str] # Objects that this stage writes and reads (internal)
 
     def __init__(self, ops: typing.List[OpInfo]):
+        if len(ops) == 0:
+            raise ValueError("No operations provided (length is 0)")
         if ops[0].op_ty != 'MxV':
             raise ValueError("First operation should be MxV (instead is:%s)" % (ops[0].op_ty))
         self.ops = ops

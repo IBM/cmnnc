@@ -1,4 +1,4 @@
-# Copyright (c) 2019, IBM Research.
+# Copyright (c) 2019-2020, IBM Research.
 #
 # Author: Kornilios Kourtis <kou@zurich.ibm.com>
 #
@@ -7,6 +7,8 @@
 import dataclasses as dc
 
 import numpy as np
+
+from util import check_class_hints
 
 # https://cs231n.github.io/convolutional-networks/
 
@@ -27,6 +29,7 @@ class Conv2DInParams:
         self.w = w
         self.h = h
         self.d = d
+        check_class_hints(self)
 
 @dc.dataclass(init=False)
 class Conv2DFiltParams:
@@ -40,6 +43,7 @@ class Conv2DFiltParams:
         self.h = h
         self.d = d
         self.l = l
+        check_class_hints(self)
 
 @dc.dataclass(init=False)
 class Conv2DOutParams:
@@ -51,6 +55,7 @@ class Conv2DOutParams:
         self.w = w
         self.h = h
         self.d = d
+        check_class_hints(self)
 
     def to_in(self):
         return Conv2DInParams(w=self.w, h=self.h, d=self.d)
@@ -79,6 +84,7 @@ class Conv2DParams:
         self.o = self.get_out_params()
         if self.i.d != self.f.d:
             raise ValueError("input d=%d and filter d=%d parameters do not match", (self.i.d, self.f.d))
+        check_class_hints(self)
 
     def get_filters_shape(self):
         """ Get the shape of the filters as a (L,D,H,W) tuple """
@@ -102,46 +108,6 @@ class Conv2DParams:
 
     def eval(self, e):
         return eval(e, self.__dict__)
-
-    def get_rd_a(self, *, s_id, vin_id):
-        rd_a = \
-            "{{ S{SID}[oh,ow] -> V{VID}[id,ih,iw] " \
-            ":    0   <= oh < {OH} " \
-            "and  0   <= ow < {OW} " \
-            "and  0   <= id < {ID} " \
-            "and  oh  <= ih < oh + {FH} "\
-            "and  ow  <= iw < ow + {FW} "\
-            "}}" \
-            .format(
-                ID=self.i.d,
-                OH=self.o.h, OW=self.o.w,
-                FH=self.f.h, FW=self.f.w,
-                SID=s_id, VID=vin_id
-            )
-        return rd_a
-
-    def get_wr_a(self, *, s_id, vout_id):
-        wr_a = \
-            "{{ S{SID}[oh,ow] -> V{VID}[ik,ih,iw] " \
-            ":    0   <= oh < {OH} " \
-            "and  0   <= ow < {OW} " \
-            "and  0   <= ik < {FL} " \
-            "and  ih = oh + {P} " \
-            "and  iw = ow + {P} " \
-            "}}" \
-            .format(
-                OH=self.o.h, OW=self.o.w,
-                FL=self.f.l,
-                P=self.p_out,
-                SID=s_id, VID=vout_id
-            )
-        return wr_a
-
-    def get_rd_wr_a(self, *, s_id, vin_id, vout_id):
-        """ Return read and write access relations """
-        rd_a = self.get_rd_a(s_id=s_id, vin_id=vin_id)
-        wr_a = self.get_wr_a(s_id=s_id, vout_id=vout_id)
-        return (rd_a, wr_a)
 
 def conv2d_simple(image, filters, conv_params):
     output_shape = conv_params.eval("o.d, o.h, o.w")
