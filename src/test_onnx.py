@@ -16,7 +16,7 @@ import pipeline as pl
 from op_info import OpInfo, OpInfo_CONV, OpInfo_ADD
 
 from onnx_test_models import mk_simple_residual as onnx_mk_simple_residual
-from onnx_util import onnx_rand_in
+from onnx_util import onnx_rand_in, onnx_conv_get_params, onnx_conv_get_batch
 
 
 # TODO: move this to another file when done
@@ -39,47 +39,30 @@ class StageInfoBuilder:
         self.pid = pid
 
         # State that is set when the first op (which is a Conv) is proccessed:
+        # Convolution domain (this domain will be shared by all operations of this stage)
         self.conv_domain = None
         # Convolution parameters
         # NB: We are hardcoding knowledge about this being a convolutional
         # network to help as produce the ISL equations. It should be possible,
         # however, to do this in a more generic way.
-        self.b = None # batch size
-        self.conv_ps = None # convolution parameters
+        self.conv_ps = None
 
     def get_conv_opinfo_(self, node) -> OpInfo:
         """ Get OpInfo for the first (and only) convolution of the partition """ 
-        # TODO: properly deal with padding and stride params.
-        attrs = dict((a.name, a) for a in node.attribute)
-        if 'pads' in attrs:
-            assert all(x == 1 for x in attrs['pads'].ints)
-        if 'stride' in attrs:
-            assert all(x == 1 for x in attrs['stride'].ints)
-        (padding, stride) = (1, 1)
 
         graph = self.graph
         init_tvs = graph.init_tvs
         (input_name,)   = (x for x in node.input if x not in init_tvs)
         (weights_name,) = (x for x in node.input if x in init_tvs)
         (output_name,)  = node.output
-        input_vi = graph.get_value_info(input_name)
-        weights_tv = graph.init_tvs[weights_name]
 
-        (self.b, cd, ch, cw) = (x.dim_value for x in input_vi.type.tensor_type.shape.dim)
-        (fl, fd, fh, fw) = tuple(weights_tv.dims)
-        self.conv_ps = conv.Conv2DParams(
-            p = padding,
-            s = stride,
-            i = conv.Conv2DInParams(w=cw, h=ch, d=cd),
-            f = conv.Conv2DFiltParams(w=fw, h=fh, d=fd, l=fl),
-            p_out = 0,
-        )
+        self.conv_ps = onnx_conv_get_params(self.graph.g, node)
 
         # TODO: The ONNX Conv operator has a batch size. Seems to me that the
         # best thing to do would be to deal with batch size externally (i.e.,
         # at an external loop that performs the transfers from/to the
         # accelerator), and transform the ONNX nodes to have a batch size of 1.
-        assert self.b == 1
+        assert onnx_conv_get_batch(self.graph.g, node) == 1
 
         oi = OpInfo_CONV(self.conv_ps,
                            s_id="S%d" % (self.pid,),
@@ -299,7 +282,6 @@ def test_onnx_residual_2d():
         s = 1)
 
     onnx_m = onnx_mk_simple_residual(conv1_ps, conv2_ps)
-    ret = onnx_m
     inp = onnx_rand_in(onnx_m)
 
     # Parse onnx graph to create a pipeline
@@ -307,10 +289,9 @@ def test_onnx_residual_2d():
     pprint(graph.partitions)
 
     vals = {}
-    objects = {}
-    stages = []
-    for si in graph.get_stage_infos():
-         stage = pl.Stage(si, vals)
+    objs_shape = {}
+    stages = [pl.Stage(si, vals) for si in graph.get_stage_infos()]
+    pline = pl.Pipeline(stages, objs_shape, execute_ops = True)
 
     # TODO: Configure the pipeline using the ONNX initializer data
 

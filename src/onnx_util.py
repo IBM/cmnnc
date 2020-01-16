@@ -31,8 +31,28 @@ def onnx_rand_in(model):
         # print(inp.name)
     return ret
 
-def conv_params_from_onnx_node(graph, node):
-    """ Create a Conv2DParams structure from an ONNX convolution node """
+
+def onnx_conv_get_batch(graph: onnx.GraphProto, node) -> int:
+    """ Get the batch size of an ONNX Conv node """
+    if node.op_type != 'Conv':
+        raise TypeError("Expecting type 'Conv', but got type:'%s'" (node.op_type,))
+
+    # Input is not in the initializer data, while weights are
+    init_names = set(x.name for x in graph.initializer)
+    (input_name,) = (x for x in node.input if x not in init_names)
+
+    # Try to find the input in the inputs or value info part of the graph
+    for vi in chain(graph.value_info, graph.input):
+        if vi.name == input_name:
+            inp = vi
+            break
+    else: raise AssertionError("Did not find input. Bailing out")
+
+    batch_size = inp.type.tensor_type.shape.dim[0].dim_value
+    return batch_size
+
+def onnx_conv_get_params(graph: onnx.GraphProto, node):
+    """ Create a Conv2DParams structure from an ONNX Conv node """
     if node.op_type != 'Conv':
         raise TypeError("Expecting type 'Conv', but got type:'%s'" (node.op_type,))
     attrs = dict( (x.name,x) for x in node.attribute )
@@ -46,16 +66,16 @@ def conv_params_from_onnx_node(graph, node):
     # filter size is a bit tricky.
     # One option might be kernel_shape, but this does not include the full
     # information (e.g., it can be 3x3 which does not include the number
-    # of layers. Instead, we try to use the weights.
+    # of layers. Instead, we use the weights to defer this information.
 
-    # We assume that the input is the first and weight is the second input.
-    # We will need to do something smarter if this breaks.
-    inputs_name = node.input[0]
-    weights_name = node.input[1]
+    # Input is not in the initializer data, while weights are
+    init_names = set(x.name for x in graph.initializer)
+    (input_name,) = (x for x in node.input if x not in init_names)
+    (weights_name,) = (x for x in node.input if x in init_names)
 
     # Try to find the input in the inputs or value info part of the graph
     for vi in chain(graph.value_info, graph.input):
-        if vi.name == inputs_name:
+        if vi.name == input_name:
             inp = vi
             break
     else: raise AssertionError("Did not find input. Bailing out")
@@ -89,7 +109,7 @@ def conv_params_from_onnx_node(graph, node):
     #    denotation is in effect, the operation expects input data tensor to
     #    arrive with the dimension denotation of [DATA_BATCH, DATA_CHANNEL,
     #    DATA_FEATURE, DATA_FEATURE ...].
-    # XXX: For now, we ignore inp.dims[-4] which is the batch size
+    # NB: We ignore the batch size
     i = conv.Conv2DInParams(
         w = inp.type.tensor_type.shape.dim[-1].dim_value,
         h = inp.type.tensor_type.shape.dim[-2].dim_value,
@@ -100,10 +120,11 @@ def conv_params_from_onnx_node(graph, node):
         i = i,
         f = f,
         p = p,
-        # TODO: deal with strading
+        # TODO: deal with strides
         s = 1,
         p_out = 0
     )
 
     #print("%s" % (conv_ps,))
+    return conv_ps
 
