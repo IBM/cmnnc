@@ -16,7 +16,8 @@ import pipeline as pl
 from op_info import OpInfo, OpInfo_CONV, OpInfo_ADD
 
 from onnx_test_models import mk_simple_residual as onnx_mk_simple_residual
-from onnx_util import onnx_rand_in, onnx_conv_get_params, onnx_conv_get_batch
+from onnx_util import onnx_rand_in, onnx_conv_get_params, onnx_conv_get_batch, \
+                      onnx_get_obj_shapes
 
 
 # TODO: move this to another file when done
@@ -289,9 +290,10 @@ def test_onnx_residual_2d():
     pprint(graph.partitions)
 
     vals = {}
-    objs_shape = {}
     stages = [pl.Stage(si, vals) for si in graph.get_stage_infos()]
-    pline = pl.Pipeline(stages, objs_shape, execute_ops = True)
+    obj_shapes = onnx_get_obj_shapes(graph.g)
+    pprint(stages)
+    pline = pl.Pipeline(stages, obj_shapes, execute_ops = True)
 
     # TODO: Configure the pipeline using the ONNX initializer data
 

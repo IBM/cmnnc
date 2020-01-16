@@ -51,6 +51,12 @@ def onnx_conv_get_batch(graph: onnx.GraphProto, node) -> int:
     batch_size = inp.type.tensor_type.shape.dim[0].dim_value
     return batch_size
 
+def onnx_get_obj_shapes(graph: onnx.GraphProto):
+    ret = {}
+    for vi in chain(graph.value_info, graph.input, graph.output):
+        ret[vi.name] = tuple(x.dim_value for x in vi.type.tensor_type.shape.dim)
+    return ret
+
 def onnx_conv_get_params(graph: onnx.GraphProto, node):
     """ Create a Conv2DParams structure from an ONNX Conv node """
     if node.op_type != 'Conv':

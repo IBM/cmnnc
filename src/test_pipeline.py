@@ -300,7 +300,7 @@ def test_residual_1d():
     #  - MxV (CONV1D)
     #     - PARAMS: P1, F1
     #     - INPUT:  IN
-    #     - OUTPUT: O1, O2
+    #     - OUTPUT: O1
     #
     # Stage S2:
     #  - MxV (CONV1D)
@@ -308,13 +308,12 @@ def test_residual_1d():
     #     - INPUT:  O1
     #     - OUTPUT: O3 (internal)
     #  - ADD:
-    #     - INPUT: O2, O3 (internal)
+    #     - INPUT: O1, O3 (internal)
     #     - OUTPUT: OUT
     #
     # cross-stage Objects:
     #  IN: WRITER: NONE,     READER: S1/MxV
     #  O1: WRITER: S1/MxV,   READER: S2/MxV
-    #  O2: WRITER: S1/MxV,   READER: S2/ADD
     # OUT: WRITER: S2/ADD,   READER: NONE
     #
     # Objects have a single writer and reader
@@ -326,7 +325,6 @@ def test_residual_1d():
         pl.OpInfo("MxV", [
             RD_a("{{ S1[s1] -> IN[i1] : 0 <= s1 < {O1} and s1 <= i1 < s1 + {F1} }}".format(**params)),
             WR_a("{{ S1[s1] -> O1[o1] : 0 <= s1 < {O1} and o1 = s1 + {P2} }}".format(**params)),
-            WR_a("{{ S1[s1] -> O2[o2] : 0 <= s1 < {O1} and o2 = s1 }}".format(**params)),
         ])
     ]
 
@@ -336,26 +334,25 @@ def test_residual_1d():
             WR_a("{{ S2[s2] -> O3[o3] : 0 <= s2 < {O3} and o3 = s2 }}".format(**params)),
         ]),
         pl.OpInfo("ADD", [
-            RD_a("{{ S2[s2] -> O2[o2]   : 0 <= s2 < {O3} and o2  = s2 }}".format(**params)),
+            RD_a("{{ S2[s2] -> O1[o1]   : 0 <= s2 < {O3} and o1  = s2 + {P2} }}".format(**params)),
             RD_a("{{ S2[s2] -> O3[o3]   : 0 <= s2 < {O3} and o3  = s2 }}".format(**params)),
             WR_a("{{ S2[s2] -> OUT[out] : 0 <= s2 < {O3} and out = s2 }}".format(**params)),
         ])
     ]
 
     s2 = pl.Stage(pl.StageInfo(s2_ops))
-    assert s2.si.ro_objs == set(('O1','O2'))
+    assert s2.si.ro_objs == set(('O1',))
     assert s2.si.wo_objs == set(('OUT',))
     assert s2.si.rw_objs == set(('O3',))
 
     s1 = pl.Stage(pl.StageInfo(s1_ops))
     assert s1.si.ro_objs == set(('IN',))
-    assert s1.si.wo_objs == set(('O1', 'O2'))
+    assert s1.si.wo_objs == set(('O1',))
     assert s1.si.rw_objs == set()
 
     objs = {
         'IN':  (params.eval("IN + 2*P1"), ),
         'O1':  (params.eval("O1 + 2*P2"), ),
-        'O2':  (params.O2, ),
         'O3':  (params.O3, ),
         'OUT': (params.OUT,),
     }
@@ -407,7 +404,6 @@ def test_residual_1d():
 
     pline_out = pline.get_object('OUT')
     pline_o1 = pline.get_object('O1')
-    pline_o2 = pline.get_object('O2')
     pline_o3 = pline.get_object('O3')
 
 
