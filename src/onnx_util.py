@@ -11,16 +11,18 @@ import onnx
 import numpy as np
 
 import conv
-from pipeline import StageInfo
 
 # ONNX helpers
+
+NodeId = int
+EdgeName = str
 
 def onnx_get_init_data(graph, name):
     for init in graph.initializer:
         if init.name == name:
             return init
 
-def onnx_rand_in(model):
+def onnx_rand_input(model: onnx.ModelProto):
     """ Create random inputs for a given ONNX model """
     ret = {}
     for inp in model.graph.input:
@@ -30,7 +32,6 @@ def onnx_rand_in(model):
         ret[inp.name] = np.random.random(shape).astype(elem_type)
         # print(inp.name)
     return ret
-
 
 def onnx_conv_get_batch(graph: onnx.GraphProto, node) -> int:
     """ Get the batch size of an ONNX Conv node """
@@ -63,7 +64,8 @@ def onnx_conv_get_params(graph: onnx.GraphProto, node):
         raise TypeError("Expecting type 'Conv', but got type:'%s'" (node.op_type,))
     attrs = dict( (x.name,x) for x in node.attribute )
 
-    # Padding: fail if there are different padding for different dimensions
+    # Padding: for now, fail if there are different padding for different
+    # dimensions
     pads = attrs['pads'].ints
     p = pads[0]
     if not all([p == x for x in pads[1:]]):
@@ -134,3 +136,20 @@ def onnx_conv_get_params(graph: onnx.GraphProto, node):
     #print("%s" % (conv_ps,))
     return conv_ps
 
+def onnx_get_ins_outs(graph: onnx.GraphProto) \
+    -> typing.Tuple[typing.Dict[EdgeName, typing.List[NodeId]],
+                    typing.Dict[EdgeName, NodeId]]:
+
+        ret = (inps, outs) = ({},{})
+        for (nid, node) in enumerate(graph.node):
+            for e_in in node.input:
+                if e_in not in inps:
+                    inps[e_in] = []
+                inps[e_in].append(nid)
+            del e_in
+
+            for e_out in node.output:
+                assert e_out not in outs, "Edge %s is output of multiple nodes: %d, %d" % (e_out, outs[e_out], nid)
+                outs[e_out] = nid
+            del e_out
+        return ret

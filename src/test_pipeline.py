@@ -13,9 +13,10 @@ import numpy as np
 import islpy as isl
 
 import pipeline as pl
-from util import xparams
+from util import xparams, xdict
 import conv
 from op_info import OpInfo_CONV
+from object_info import ObjectInfo
 
 RD_a = pl.IslAccess.RD
 WR_a = pl.IslAccess.WR
@@ -23,7 +24,7 @@ WR_a = pl.IslAccess.WR
 
 def test_mxv():
     """ Test a single MxV operation """
-    params = {'n': 128 }
+    params = xparams({'n': 128 })
 
     s_ops = [
         pl.OpInfo("MxV", [
@@ -34,21 +35,21 @@ def test_mxv():
     stage = pl.Stage(pl.StageInfo(s_ops))
 
     # Objects
-    objs = {
-        'x': (params['n'], ),
-        'y': (params['n'], )
+    objs_info = {
+        'x': ObjectInfo(shape=(params.n,)),
+        'y': ObjectInfo(shape=(params.n,)),
     }
 
     # Initialize matrix, and create core configuration
     # np.random.seed(666)
-    m_shape = eval("(n,n)", params)
+    m_shape = params.eval("(n,n)")
     m = np.random.rand(*m_shape)
     cconf = pl.CoreConf(m)
 
     # Initalize pipeline
-    pline = pl.Pipeline([stage], objs, execute_ops=True)
+    pline = pl.Pipeline([stage], objs_info, execute_ops=True)
     x = pline.get_object("x")
-    x[...] = np.random.rand(params['n'])
+    x[...] = np.random.rand(params.n)
 
     # Configure pipeline
     pline.configure([cconf])
@@ -60,7 +61,7 @@ def test_mxv():
 
 def test_conv1d():
     """ Test a single 1D convolution """
-    eg_vals = {'n': 10, 'k': 3, 'p': 1}
+    eg_vals = xparams({'n': 10, 'k': 3, 'p': 1})
 
     s1_ops = [
         pl.OpInfo("MxV", [
@@ -69,11 +70,11 @@ def test_conv1d():
         ]),
     ]
     stage1 = pl.Stage(pl.StageInfo(s1_ops), eg_vals)
-    objects = {
-        'in': eval("(n + 2*p,)", eg_vals),
-        'out': eval("(n - k + 2*p + 1,)", eg_vals),
+    objs_info = {
+        'in':  ObjectInfo(shape=(eg_vals.n,), padding=eg_vals.p),
+        'out': ObjectInfo(shape=eg_vals.eval("(n-k+1,)"), padding=eg_vals.p),
     }
-    pline = pl.Pipeline([stage1], objects, execute_ops=True)
+    pline = pl.Pipeline([stage1], objs_info, execute_ops=True)
 
     conv1_ps = conv.Conv1DParams(
         i = conv.Conv1DInParams(w=eg_vals["n"], d=1),
@@ -90,7 +91,7 @@ def test_conv1d():
 
     # Set input
     image1 = np.random.rand(*conv1_ps.get_input_shape())
-    image1 = np.pad(image1, conv1_ps.get_padding())
+    image1 = np.pad(image1, conv1_ps.get_input_padding())
     inp = pline.get_object('in')
     inp[...] = image1
 
@@ -126,7 +127,7 @@ def test_conv1d_conv1d():
     # N: in1 size
     # K: kernel size
     # P: padding
-    eg_vals = {'n': 10, 'k': 3, 'p': 1}
+    eg_vals = xparams({'n': 10, 'k': 3, 'p': 1})
 
     s1_ops = [
         pl.OpInfo("MxV", [
@@ -144,13 +145,13 @@ def test_conv1d_conv1d():
     ]
     stage2 = pl.Stage(pl.StageInfo(s2_ops), eg_vals)
 
-    objects = {
-        'in1': eval("(n + 2*p,)", eg_vals),
-        'in2': eval("(n - k + 2*p + 1 + 2*p,)", eg_vals),
+    objs_info = {
+        'in1': ObjectInfo(shape=(eg_vals.n,), padding=eg_vals.p),
+        'in2': ObjectInfo(shape=(eg_vals.eval("n-k+2*p+1"),), padding=eg_vals.p),
     }
-    pprint(objects)
+    pprint(objs_info)
 
-    pline = pl.Pipeline([stage1, stage2], objects)
+    pline = pl.Pipeline([stage1, stage2], objs_info)
 
     for i in range(13):
         pline.tick()
@@ -170,12 +171,12 @@ def test_conv2d():
     ]
     stage1 = pl.Stage(pl.StageInfo(s1_ops))
 
-    objs = {
-        'V1': conv1_ps.get_input_shape(pad=True),
-        'V2': conv1_ps.get_output_shape(),
+    objs_info = {
+        'V1': conv1_ps.get_input_objectinfo(),
+        'V2': conv1_ps.get_output_objectinfo(),
     }
 
-    p = pl.Pipeline([stage1], objs, execute_ops=True)
+    p = pl.Pipeline([stage1], objs_info, execute_ops=True)
 
     # Set filters
     filters1 = np.random.rand(*conv1_ps.get_filters_shape())
@@ -184,7 +185,7 @@ def test_conv2d():
 
     # Set input
     image1 = np.random.rand(*conv1_ps.get_input_shape())
-    image1 = np.pad(image1, conv1_ps.get_padding())
+    image1 = np.pad(image1, conv1_ps.get_input_padding())
     vals1 = p.get_object('V1')
     vals1[...] = image1
 
@@ -230,13 +231,13 @@ def test_conv2d_conv2d():
     ]
     stage2 = pl.Stage(pl.StageInfo(s2_ops))
 
-    objs = {
-        'V1': conv1_ps.get_input_shape(pad=True),
-        'V2': conv2_ps.get_input_shape(pad=True),
-        'V3': conv2_ps.get_output_shape(),
+    objs_info = {
+        'V1': conv1_ps.get_input_objectinfo(),
+        'V2': conv2_ps.get_input_objectinfo(),
+        'V3': conv2_ps.get_output_objectinfo(),
     }
 
-    p = pl.Pipeline([stage1,stage2], objs, execute_ops=True)
+    p = pl.Pipeline([stage1,stage2], objs_info, execute_ops=True)
 
     filters1 = np.random.rand(*conv1_ps.get_filters_shape())
     filters_m1 = filters1.reshape(conv1_ps.eval("(f.l, f.d*f.h*f.w)"))
@@ -247,13 +248,13 @@ def test_conv2d_conv2d():
     cconf2 = pl.CoreConf(filters_m2)
 
     image = np.random.rand(*conv1_ps.get_input_shape())
-    image = np.pad(image, conv1_ps.get_padding())
+    image = np.pad(image, conv1_ps.get_input_padding())
 
     p.configure([cconf1,cconf2])
 
     vals1 = p.get_object('V1')
     print("vals1.shape=%s image.shape=%s" % (vals1.shape,image.shape))
-    pprint(objs)
+    pprint(objs_info)
     vals1[...] = image
 
     while True:
@@ -270,7 +271,7 @@ def test_conv2d_conv2d():
     pprint(vals3.shape)
 
     output1 = conv.conv2d_simple(image, filters1, conv1_ps)
-    output1 = np.pad(output1, conv2_ps.get_padding())
+    output1 = np.pad(output1, conv2_ps.get_input_padding())
     output2 = conv.conv2d_simple(output1, filters2, conv2_ps)
     np.testing.assert_allclose(output2, vals3)
     print("DONE!")
@@ -350,16 +351,6 @@ def test_residual_1d():
     assert s1.si.wo_objs == set(('O1',))
     assert s1.si.rw_objs == set()
 
-    objs = {
-        'IN':  (params.eval("IN + 2*P1"), ),
-        'O1':  (params.eval("O1 + 2*P2"), ),
-        'O3':  (params.O3, ),
-        'OUT': (params.OUT,),
-    }
-    pprint(objs)
-
-    pline = pl.Pipeline([s1, s2], objs, execute_ops=True, loop_inp_limit=1)
-
     conv1_ps = conv.Conv1DParams(
         i = conv.Conv1DInParams(w=params.IN, d=1),
         f = conv.Conv1DFiltParams(w=params.F1, d=1, l=1),
@@ -375,6 +366,20 @@ def test_residual_1d():
         p_out = 0,
     )
 
+    objs_info = {
+        # 'IN':  (params.eval("IN + 2*P1"), ),
+        # 'O1':  (params.eval("O1 + 2*P2"), ),
+        # 'O3':  (params.O3, ),
+        # 'OUT': (params.OUT,),
+        'IN': ObjectInfo(shape=(params.IN,), padding=params.P1),
+        'O1': ObjectInfo(shape=(params.O1,), padding=params.P2),
+        'O3': ObjectInfo(shape=(params.O3,), padding=0),
+        'OUT': ObjectInfo(shape=(params.OUT,), padding=0),
+    }
+    pprint(objs_info)
+
+    pline = pl.Pipeline([s1, s2], objs_info, execute_ops=True, loop_inp_limit=1)
+
     pprint(params)
     filters1 = np.random.rand(*conv1_ps.get_filters_shape())
     filters1_m = filters1.reshape(conv1_ps.eval("(f.l, f.d*f.w)"))
@@ -385,7 +390,7 @@ def test_residual_1d():
     cconf2 = pl.CoreConf(filters2_m)
 
     image = np.random.rand(*conv1_ps.get_input_shape())
-    image = np.pad(image, conv1_ps.get_padding())
+    image = np.pad(image, conv1_ps.get_input_padding())
     inp = pline.get_object("IN")
     inp[...] = image
 
@@ -409,7 +414,7 @@ def test_residual_1d():
 
     o1 = conv.conv1d_simple(image, filters1, conv1_ps)
     o2 = np.copy(o1)
-    o1 = np.pad(o1, conv2_ps.get_padding())
+    o1 = np.pad(o1, conv2_ps.get_input_padding())
     np.testing.assert_allclose(o1[0,:], pline_o1, err_msg="O1 does not match")
     o3 = conv.conv1d_simple(o1, filters2, conv2_ps)
     out = o3 + o2

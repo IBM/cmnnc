@@ -8,22 +8,28 @@ import typing
 import dataclasses as dc
 from pprint import pprint
 
+import numpy as np
 import onnxruntime as onnxrt
 import onnx
 
 import conv
 import pipeline as pl
 from op_info import OpInfo, OpInfo_CONV, OpInfo_ADD
-
 from onnx_test_models import mk_simple_residual as onnx_mk_simple_residual
-from onnx_util import onnx_rand_in, onnx_conv_get_params, onnx_conv_get_batch, \
-                      onnx_get_obj_shapes
+from onnx_util import onnx_rand_input, onnx_conv_get_params, onnx_conv_get_batch, \
+                      onnx_get_obj_shapes, NodeId, EdgeName, onnx_get_ins_outs
 
 
 # TODO: move this to another file when done
 
-NodeId = int
-EdgeName = str
+def get_obj_shapes_nobatch(g):
+    """ Get object shapes for a graph, but ignore batch parameter """
+    obj_shapes = onnx_get_obj_shapes(g)
+    for objname in obj_shapes:
+        shape = obj_shapes[objname]
+        assert shape[0] == 1 # batch size
+        obj_shapes[objname] = shape[1:]
+    return obj_shapes
 
 @dc.dataclass(init=False)
 class Partition:
@@ -32,21 +38,29 @@ class Partition:
     def __init__(self, *nis):
         self.nis = list(nis)
 
+class StageBuilder:
+    graph: onnx.GraphProto
+    pid: int # partition id
 
-class StageInfoBuilder:
+    ## State that is set when the first op (which is a Conv) is proccessed:
+    # Convolution parameters
+    # NB: We are hardcoding knowledge about this being a convolutional
+    # network to help as produce the ISL equations. It should be possible,
+    # however, to do this in a more generic way.
+    conv_ps_: conv.Conv2DParams
+    # Convolution domain (this domain will be shared by all operations of this stage)
+    conv_domain_: 'isl.Map'
+
     def __init__(self, graph: 'OnnxGraph', pid: int):
         # Initial state:
         self.graph = graph
         self.pid = pid
 
-        # State that is set when the first op (which is a Conv) is proccessed:
-        # Convolution domain (this domain will be shared by all operations of this stage)
-        self.conv_domain = None
-        # Convolution parameters
-        # NB: We are hardcoding knowledge about this being a convolutional
-        # network to help as produce the ISL equations. It should be possible,
-        # however, to do this in a more generic way.
-        self.conv_ps = None
+        self.conv_ps_ = None
+        self.conv_domain_ = None
+
+        self.stage_info = self.get_stage_info_()
+        self.core_conf  = self.get_core_conf_()
 
     def get_conv_opinfo_(self, node) -> OpInfo:
         """ Get OpInfo for the first (and only) convolution of the partition """ 
@@ -57,7 +71,10 @@ class StageInfoBuilder:
         (weights_name,) = (x for x in node.input if x in init_tvs)
         (output_name,)  = node.output
 
-        self.conv_ps = onnx_conv_get_params(self.graph.g, node)
+        self.conv_ps_ = onnx_conv_get_params(self.graph.g, node)
+
+        # set padding to the underlying object
+        self.graph.objs_info[input_name].padding = self.conv_ps_.get_input_padding()
 
         # TODO: The ONNX Conv operator has a batch size. Seems to me that the
         # best thing to do would be to deal with batch size externally (i.e.,
@@ -65,11 +82,11 @@ class StageInfoBuilder:
         # accelerator), and transform the ONNX nodes to have a batch size of 1.
         assert onnx_conv_get_batch(self.graph.g, node) == 1
 
-        oi = OpInfo_CONV(self.conv_ps,
+        oi = OpInfo_CONV(self.conv_ps_,
                            s_id="S%d" % (self.pid,),
                            vin_id=input_name,
                            vout_id=output_name)
-        self.conv_domain = oi.get_domain()
+        self.conv_domain_ = oi.get_domain()
         return oi
 
     def get_add_opinfo_(self, node) -> OpInfo:
@@ -80,10 +97,10 @@ class StageInfoBuilder:
         y_shape = self.graph.get_value_shape(out)
         assert a_shape == b_shape
         assert a_shape == y_shape
-        ret = OpInfo_ADD(self.conv_domain, a_shape, in1, in2, out)
+        ret = OpInfo_ADD(self.conv_domain_, a_shape, in1, in2, out)
         return ret
 
-    def get_node_opinfo(self, nid: int) -> OpInfo:
+    def get_node_opinfo_(self, nid: int) -> OpInfo:
         """ Return pipeline OpInfo for a given node.
 
         I.e., we translate a single ONNX node into a pipeline operation.
@@ -91,8 +108,8 @@ class StageInfoBuilder:
         node = self.graph.g.node[nid]
         # The first (and only the first) node of the partition has to be a CONV
         # node.  self.get_conv_opinfo_() will return the OpInfo for the node,
-        # and also set fields such as self.conv_domain
-        if self.conv_domain is None:
+        # and also set fields such as self.conv_domain_
+        if self.conv_domain_ is None:
             if node.op_type != 'Conv':
                 raise ValueError("First partition node is not Conv (%s)" % (node.op_type,))
             return self.get_conv_opinfo_(node)
@@ -103,11 +120,27 @@ class StageInfoBuilder:
         else:
             raise ValueError("Unknown node type %s" % (node.op_type, ))
 
-    def get_stage_info(self) -> pl.StageInfo:
+    def get_stage_info_(self) -> pl.StageInfo:
         """ Return the stage info the specified partition """
         partition = self.graph.partitions[self.pid]
-        ois = [self.get_node_opinfo(ni) for ni in partition.nis]
+        ois = [self.get_node_opinfo_(ni) for ni in partition.nis]
         return pl.StageInfo(ois)
+
+    def get_core_conf_(self) -> pl.CoreConf:
+        """ Return the core configuration for this particular stage """
+        graph = self.graph
+        conv_ni = graph.partitions[self.pid].nis[0]
+        conv_node = graph.g.node[conv_ni]
+        if conv_node.op_type != 'Conv':
+            raise ValueError("First partition node is not Conv (%s)" % (conv_1node.op_type,))
+
+        (weights_name,) = (x for x in conv_node.input if x in graph.init_tvs)
+
+        ret = pl.CoreConf(
+            np.array(graph.init_tvs[weights_name].float_data)
+              .reshape(self.conv_ps_.eval("(f.l, f.d*f.h*f.w)"))
+        )
+        return ret
 
 class OnnxGraph:
     """ This class wraps an ONNX module so that it can be used for our purposes """
@@ -118,6 +151,10 @@ class OnnxGraph:
     outs: typing.Dict[EdgeName, NodeId]
     partitions: typing.List[Partition]
 
+    objs_info: typing.Dict[str, pl.ObjectInfo]
+    builders: typing.List[StageBuilder]
+
+    # dicts for easy lookip
     # Value info for graph input, output, and intermediate valudes
     input_vis: typing.Dict[str, onnx.helper.ValueInfoProto]
     output_vis: typing.Dict[str, onnx.helper.ValueInfoProto]
@@ -125,35 +162,28 @@ class OnnxGraph:
     # initializer tensor values
     init_tvs: typing.Dict[str, onnx.helper.TensorProto]
 
-
-    def __init__(self, onnx_m):
-        self.m = onnx_m
-
-        self.inps = {}
-        self.outs = {}
-        for (nid, node) in enumerate(self.g.node):
-            for e_in in node.input:
-                if e_in not in self.inps:
-                    self.inps[e_in] = []
-                self.inps[e_in].append(nid)
-            del e_in
-
-            for e_out in node.output:
-                assert e_out not in self.outs, "Edge %s is output of multiple nodes: %d, %d" % (e_out, self.outs[e_out], nid)
-                self.outs[e_out] = nid
-            del e_out
-
-        self.partitions = self.partition()
-
-        self.input_vis =  dict((e.name,e) for e in self.g.input)
-        self.output_vis = dict((e.name,e) for e in self.g.output)
-        self.inter_vis = dict((e.name,e) for e in self.g.value_info)
-        self.init_tvs = dict((v.name, v) for v in self.g.initializer)
-
     @property
     def g(self):
         """ shortcut for onnx graph """
         return self.m.graph
+
+    def __init__(self, onnx_m):
+        self.m = onnx_m
+
+        (self.inps, self.outs) = onnx_get_ins_outs(self.g)
+        self.partitions = self.partition_()
+
+        self.input_vis =  dict((e.name,e) for e in self.g.input)
+        self.output_vis = dict((e.name,e) for e in self.g.output)
+        self.inter_vis = dict((e.name,e) for e in self.g.value_info)
+        self.init_tvs = dict((v.name,v) for v in self.g.initializer)
+
+        self.objs_info = dict(
+            (name, pl.ObjectInfo(shape))
+                for (name, shape) in get_obj_shapes_nobatch(self.g).items()
+        )
+        self.builders = [StageBuilder(self, pid) for pid in range(len(self.partitions))]
+
 
     def get_value_info(self, e: str):
         for d in (self.input_vis, self.output_vis, self.inter_vis):
@@ -217,7 +247,7 @@ class OnnxGraph:
 
         return list(reversed(ret))
 
-    def partition(self) -> typing.List[Partition]:
+    def partition_(self) -> typing.List[Partition]:
         # Partition the ONNX graph, so that we can map each partition to a core
         #
         # Invariants:
@@ -253,9 +283,11 @@ class OnnxGraph:
         partlist.append(part)
         return partlist
 
-    def get_stage_infos(self):
-        for pid in range(len(self.partitions)):
-            yield StageInfoBuilder(self, pid).get_stage_info()
+    def get_stage_info(self, pid) -> pl.StageInfo:
+        return self.builders[pid].stage_info
+
+    def get_core_conf(self, pid) -> pl.CoreConf:
+        return self.builders[pid].core_conf
 
 def test_onnx_residual_2d():
     # Create the following ONNX graph:
@@ -283,22 +315,34 @@ def test_onnx_residual_2d():
         s = 1)
 
     onnx_m = onnx_mk_simple_residual(conv1_ps, conv2_ps)
-    inp = onnx_rand_in(onnx_m)
 
     # Parse onnx graph to create a pipeline
     graph = OnnxGraph(onnx_m)
     pprint(graph.partitions)
 
     vals = {}
-    stages = [pl.Stage(si, vals) for si in graph.get_stage_infos()]
-    obj_shapes = onnx_get_obj_shapes(graph.g)
-    pprint(stages)
-    pline = pl.Pipeline(stages, obj_shapes, execute_ops = True)
+    stages = []
+    cconfs = []
+    for pid in range(len(graph.partitions)):
+        si = graph.get_stage_info(pid)
+        stage = pl.Stage(si, vals)
+        stages.append(stage)
+        cconf = graph.get_core_conf(pid)
+        cconfs.append(cconf)
 
-    # TODO: Configure the pipeline using the ONNX initializer data
+    pline = pl.Pipeline(stages, graph.objs_info, execute_ops = True, loop_inp_limit=1)
+    pline.configure(cconfs)
+
+    # set inputs
+    inp = onnx_rand_input(onnx_m)
+    for (inp_name, inp_data) in inp.items():
+        obj_info = graph.objs_info[inp_name]
+        data = np.random.rand(*obj_info.shape)
+        data = np.pad(data, obj_info.padding)
+        obj = pline.get_object(inp_name)
+        obj[...] = data
 
     # Execute the pipeline
-    # image  = np.pad(inp["in"][0], self.conv_ps.get_padding())
 
     # Execute using onnxruntime
     onnx.save(onnx_m, 'simple_residual_2d.onnx')

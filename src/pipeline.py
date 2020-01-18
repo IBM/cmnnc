@@ -36,9 +36,10 @@ import astor as pyastor
 import islpy as isl
 
 from op_info import OpInfo, IslAccess
+from object_info import ObjectInfo
 from isl_utils import isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
 from pyast_utils import StructureTupleYields
-
+from util import check_class_hints
 
 @dc.dataclass(init=False)
 class StageInfo:
@@ -514,6 +515,7 @@ class Core:
         self.xbar_m = xbar_m.copy()
 
     def alloc_object(self, objname: str, shape: typing.Tuple[int, ...]):
+        print("Allocating %s (%s)" % (objname, shape))
         obj = np.zeros(shape)
         self.set_object(objname, obj)
 
@@ -662,19 +664,21 @@ class Core:
         _ = self.objs[objname][w_idx]
 
 class Object:
+    """ Object information """
     name: str # name of the object
-    shape: typing.Tuple[int, ...] # shape of the object
+    info: ObjectInfo
     reader: typing.Optional[str] # name of reader stage
     writer: typing.Optional[str] # name of writer stage
 
     def __repr__(self):
-        return "Object(%s, shape=%s)" % (self.name, self.shape)
+        return "Object(%s, info=%s)" % (self.name, self.info)
 
-    def __init__(self, name, shape):
+    def __init__(self, name, oi: ObjectInfo):
         self.name = name
-        self.shape = shape
+        self.info = oi
         self.reader = None
         self.writer = None
+        check_class_hints(self)
 
     def has_reader(self) -> bool:
         return self.reader is not None
@@ -708,7 +712,7 @@ class Pipeline:
 
     def __init__(self,
                  stages: typing.List[Stage],
-                 objs_shape: typing.Dict[str, typing.Tuple[int, ...]],
+                 objs_info: typing.Dict[str, ObjectInfo],
                  execute_ops: bool = False,
                  loop_inp_limit: typing.Optional[int] = None):
         """ Initialize a Pipeline
@@ -719,7 +723,7 @@ class Pipeline:
         """
 
         # Initialize p_objs
-        self.p_objs = dict((n, Object(n, s)) for (n, s) in objs_shape.items())
+        self.p_objs = dict((n, Object(n, oi)) for (n, oi) in objs_info.items())
 
         # Initialize p_stages, and attach stages to the pipeline
         self.p_stages = dict(((s.get_name(), s) for s in stages))
@@ -756,11 +760,11 @@ class Pipeline:
             if obj.is_internal():
                 print("Object %s is internal to %s." % (obj.name, obj.reader))
                 reader_stage = self.p_stages[obj.reader]
-                reader_stage.core.alloc_internal_object(obj.name, obj.shape)
+                reader_stage.core.alloc_internal_object(obj.name, obj.info.get_padded_shape())
 
             elif obj.reader is not None:
                 reader_stage = self.p_stages[obj.reader]
-                reader_stage.core.alloc_object(obj.name, obj.shape)
+                reader_stage.core.alloc_object(obj.name, obj.info.get_padded_shape())
                 if obj.writer is None:
                     print("Object %s read by %s has no writer. Assuming it always exists." % (obj.name, obj.reader))
                     reader_stage.set_dont_wait_for_reads(obj.name)
@@ -774,7 +778,7 @@ class Pipeline:
 
             elif obj.writer is not None:
                 print("Object %s is orphan: written by %s, but has no readers" % (obj.name, obj.writer))
-                self.orphan_objs[obj.name] = np.zeros(obj.shape)
+                self.orphan_objs[obj.name] = np.zeros(obj.info.get_padded_shape())
             else:
                 print("WARNING: object %s is not read or written" % (obj.name,))
 

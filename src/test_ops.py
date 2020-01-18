@@ -13,7 +13,7 @@ import onnxruntime as onnxrt
 import conv
 from onnx_test_models import mk_conv as onnx_mk_conv
 from onnx_test_models import mk_conv_conv as onnx_mk_conv_conv
-from onnx_util import onnx_get_init_data, onnx_rand_in
+from onnx_util import onnx_get_init_data, onnx_rand_input
 
 class TestConv(unittest.TestCase):
     def __init__(self, *args, **kwargs):
@@ -34,7 +34,7 @@ class TestConv(unittest.TestCase):
         conv_ps = self.conv_ps
         filters = np.random.rand(*conv_ps.get_filters_shape())
         image   = np.random.rand(*conv_ps.get_input_shape())
-        image   = np.pad(image, conv_ps.get_padding())
+        image   = np.pad(image, conv_ps.get_input_padding())
 
         output_simple = conv.conv2d_simple(image, filters, conv_ps)
         output_mxv = conv.conv2d_mxv(image, filters, conv_ps)
@@ -43,11 +43,11 @@ class TestConv(unittest.TestCase):
     def test_onnxrt(self):
         """ Test ONNX and simple versions of CONV 2D """
         onnx_model = onnx_mk_conv(self.conv_ps)
-        inp = onnx_rand_in(onnx_model)
+        inp = onnx_rand_input(onnx_model)
         onnx.save(onnx_model, 'mymodel.onnx')
         sess = onnxrt.InferenceSession('mymodel.onnx')
         out = sess.run(None, inp)
-        image  = np.pad(inp["conv1.in"][0], self.conv_ps.get_padding())
+        image  = np.pad(inp["conv1.in"][0], self.conv_ps.get_input_padding())
         filters = onnx.numpy_helper.to_array(
             onnx_get_init_data(onnx_model.graph, "conv1.ws")
         )
@@ -80,12 +80,12 @@ class TestConvConv(unittest.TestCase):
     def test_onnxrt(self):
         """ Test ONNX and simple versions of CONV 2D """
         onnx_model = onnx_mk_conv_conv(self.conv1_ps, self.conv2_ps)
-        inp = onnx_rand_in(onnx_model)
+        inp = onnx_rand_input(onnx_model)
         onnx.save(onnx_model, 'mymodel.onnx')
         sess = onnxrt.InferenceSession('mymodel.onnx')
         out = sess.run(None, inp)
 
-        image  = np.pad(inp["conv1.in"][0], self.conv1_ps.get_padding())
+        image  = np.pad(inp["conv1.in"][0], self.conv1_ps.get_input_padding())
         filters1 = onnx.numpy_helper.to_array(
             onnx_get_init_data(onnx_model.graph, "conv1.ws")
         )
@@ -94,7 +94,7 @@ class TestConvConv(unittest.TestCase):
         )
 
         exp_out1 = conv.conv2d_mxv(image, filters1, self.conv1_ps)
-        exp_out1 = np.pad(exp_out1, self.conv2_ps.get_padding())
+        exp_out1 = np.pad(exp_out1, self.conv2_ps.get_input_padding())
         exp_out2 = conv.conv2d_mxv(exp_out1, filters2, self.conv2_ps)
 
         np.testing.assert_allclose(out[0][0], exp_out2, rtol=1e-06)

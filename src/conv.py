@@ -10,6 +10,8 @@ import numpy as np
 
 from util import check_class_hints
 
+from object_info import ObjectInfo
+
 # https://cs231n.github.io/convolutional-networks/
 
 def check_type(v, ty, n=""):
@@ -66,6 +68,7 @@ class Conv2DParams:
     i: Conv2DInParams
     f: Conv2DFiltParams
     p: int
+    p_out: int
     s: int
     o: Conv2DOutParams
 
@@ -90,15 +93,25 @@ class Conv2DParams:
         """ Get the shape of the filters as a (L,D,H,W) tuple """
         return (self.f.l, self.f.d, self.f.h, self.f.w)
 
-    def get_padding(self):
+    def get_input_padding(self):
         """ Return something that you can pass to numpy.pad() """
         return ((0,0), (self.p, self.p), (self.p, self.p))
+
+    def get_output_padding(self):
+        """ Return something that you can pass to numpy.pad() """
+        return ((0,0), (self.p_out, self.p_out), (self.p_out, self.p_out))
 
     def get_input_shape(self, *, pad: bool = False):
         """ Get input shape (pad determines whether padding is considered or not) """
         ph = 2*self.p if pad else 0
         pw = 2*self.p if pad else 0
         return (self.i.d, self.i.h + ph, self.i.w + pw)
+
+    def get_input_objectinfo(self):
+        return ObjectInfo(self.get_input_shape(), self.get_input_padding())
+
+    def get_output_objectinfo(self):
+        return ObjectInfo(self.get_output_shape(), self.get_output_padding())
 
     def get_output_shape(self, *, pad: bool = False):
         """ Get output shape (pad determines whether padding is considered or not) """
@@ -212,9 +225,13 @@ class Conv1DParams:
         """ Get the shape of the filters as a (L,D,W) tuple """
         return (self.f.l, self.f.d, self.f.w)
 
-    def get_padding(self):
+    def get_input_padding(self):
         """ Return something that you can pass to numpy.pad() """
         return ((0,0), (self.p, self.p))
+
+    def get_output_padding(self):
+        """ Return something that you can pass to numpy.pad() """
+        return ((0,0), (self.p_out, self.p_out))
 
     def get_input_shape(self, *, pad: bool = False):
         """ Get input shape (pad determines whether padding is considered or not) """
@@ -225,6 +242,12 @@ class Conv1DParams:
         """ Get output shape (pad determines whether padding is considered or not) """
         pw = 2*self.p_out if pad else 0
         return (self.o.d, self.o.w + pw)
+
+    def get_input_objectinfo(self):
+        return ObjectInfo(self.get_input_shape(), self.get_input_padding())
+
+    def get_output_objectinfo(self):
+        return ObjectInfo(self.get_output_shape(), self.get_output_padding())
 
 def conv1d_simple(image, filters, params: Conv1DParams):
     output_shape = params.eval("o.d, o.w")
