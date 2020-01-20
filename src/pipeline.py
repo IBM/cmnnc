@@ -614,6 +614,7 @@ class Core:
         if self.xbar_m is None:
             raise RuntimeError("core xbar matrix is undefined")
 
+        execute_ops_debug_ = False
         assert ops[0].ty == "MxV", "First operation should be on the crossbar (MxV)"
 
         # Each operation has a predefined number of inputs, but can have an
@@ -626,12 +627,14 @@ class Core:
                 if len(op.accesses["RD"]) != 1:
                     raise ValueError("MxV: expecting 1 read argument (got %d)." % (len(op.accesses['RD'], )))
                 (rd_objstr, rd_is) = next(iter(op.accesses["RD"].items()))
-                # print("    MxV: RD obj=%s is=%s" % (rd_objstr, rd_is))
+                if execute_ops_debug_:
+                    print("    MxV: RD obj=%s is=%s" % (rd_objstr, rd_is))
                 # Fill input vector for mxv
                 x = self.read_object(rd_objstr, rd_is, results)
                 y = np.matmul(self.xbar_m, x)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
-                    # print("    MxV: WR obj=%s is=%s" % (wr_objstr, wr_is))
+                    if execute_ops_debug_:
+                        print("    MxV: WR obj=%s is=%s" % (wr_objstr, wr_is))
                     self.handle_op_output(wr_objstr, results, wr_is, y)
             elif  op.ty == "ADD":
                 if len(op.accesses["RD"]) != 2:
@@ -641,11 +644,13 @@ class Core:
                 x1 = self.read_object(rd_objstr1, rd_is1, results)
                 (rd_objstr2, rd_is2) = rd_accesses[1]
                 x2 = self.read_object(rd_objstr2, rd_is2, results)
-                # print("    ADD: RD1 obj=%s is=%s vs=%s" % (rd_objstr1, rd_is1, x1))
-                # print("    ADD: RD2 obj=%s is=%s vs=%s" % (rd_objstr2, rd_is2, x2))
+                if execute_ops_debug_:
+                    print("    ADD: RD1 obj=%s is=%s vs=%s" % (rd_objstr1, rd_is1, x1))
+                    print("    ADD: RD2 obj=%s is=%s vs=%s" % (rd_objstr2, rd_is2, x2))
                 y = np.add(x1, x2)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
-                    # print("    ADD: WR obj=%s is=%s" % (wr_objstr, wr_is))
+                    if execute_ops_debug_:
+                        print("    ADD: WR obj=%s is=%s" % (wr_objstr, wr_is))
                     self.handle_op_output(wr_objstr, results, wr_is, y)
             else:
                 raise ValueError("Unknown operation: %s" % (op.ty,))

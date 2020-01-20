@@ -4,12 +4,12 @@
 #
 # vim: set expandtab softtabstop=4 tabstop=4 shiftwidth=4:
 
+import typing
 import dataclasses as dc
 
 import numpy as np
 
 from util import check_class_hints
-
 from object_info import ObjectInfo
 
 # https://cs231n.github.io/convolutional-networks/
@@ -68,7 +68,7 @@ class Conv2DParams:
     i: Conv2DInParams
     f: Conv2DFiltParams
     p: int
-    p_out: int
+    p_out: typing.Optional[int]
     s: int
     o: Conv2DOutParams
 
@@ -101,6 +101,13 @@ class Conv2DParams:
         """ Return something that you can pass to numpy.pad() """
         return ((0,0), (self.p_out, self.p_out), (self.p_out, self.p_out))
 
+    def set_p_out_from_padding(self, padding):
+        # NB: just handle ((0,0), (p,p), (p,p)) padding for now
+        assert padding[0] == (0,0)
+        ((p1,p2), (p3,p4)) = padding[1:]
+        (self.p_out) = list(set((p1,p2,p3,p4)))
+
+
     def get_input_shape(self, *, pad: bool = False):
         """ Get input shape (pad determines whether padding is considered or not) """
         ph = 2*self.p if pad else 0
@@ -123,6 +130,18 @@ class Conv2DParams:
         return eval(e, self.__dict__)
 
 def conv2d_simple(image, filters, conv_params):
+    """ Perform a simple CONV (2D) opration
+
+    image: image data (expected shape: conv_ps.get_input_shape())
+    filters: filter data (expected shape: conv_ps.get_filters_shape())
+    """
+    assert image.shape == conv_params.get_input_shape(pad=True), \
+        "image.shape=%s different than conv_params.get_input_shape(pad=True):%s" \
+        % (image.shape, conv_params.get_input_shape(pad=True))
+    assert filters.shape == conv_params.get_filters_shape(), \
+        "filters.shape=%s different than conv_params.get_filters_shape():%s" \
+        % (image.shape, conv_params.get_filters_shape())
+
     output_shape = conv_params.eval("o.d, o.h, o.w")
     output = np.ndarray(output_shape)
     for od in range(conv_params.o.d):

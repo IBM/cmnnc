@@ -13,6 +13,8 @@ sys.path.append("./src")
 
 # If you want no messages:
 #  ./run_tests.py --capture=fd --show-capture=no
+# If you want to stop at the first failure:
+#  ./run_tests.py --maxfail 1
 
 if __name__ == '__main__':
     args  = []

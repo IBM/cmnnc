@@ -130,7 +130,8 @@ def onnx_conv_get_params(graph: onnx.GraphProto, node):
         p = p,
         # TODO: deal with strides
         s = 1,
-        p_out = 0
+        # p_out has to be set later
+        p_out = None,
     )
 
     #print("%s" % (conv_ps,))

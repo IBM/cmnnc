@@ -33,126 +33,31 @@ def get_obj_shapes_nobatch(g):
 
 @dc.dataclass(init=False)
 class Partition:
+    """ A partition of (ONNX) nodes
+
+    This class is refined in steps:
+     * __init__()
+     * set_conv_ps(): set the parameters for the convlution of this partition.
+    """
     nis: typing.List[NodeId] # nodes that belong to this partition
 
     def __init__(self, *nis):
         self.nis = list(nis)
 
-class StageBuilder:
-    graph: onnx.GraphProto
-    pid: int # partition id
-
-    ## State that is set when the first op (which is a Conv) is proccessed:
-    # Convolution parameters
-    # NB: We are hardcoding knowledge about this being a convolutional
-    # network to help as produce the ISL equations. It should be possible,
-    # however, to do this in a more generic way.
-    conv_ps_: conv.Conv2DParams
-    # Convolution domain (this domain will be shared by all operations of this stage)
-    conv_domain_: 'isl.Map'
-
-    def __init__(self, graph: 'OnnxGraph', pid: int):
-        # Initial state:
-        self.graph = graph
-        self.pid = pid
-
-        self.conv_ps_ = None
-        self.conv_domain_ = None
-
-        self.stage_info = self.get_stage_info_()
-        self.core_conf  = self.get_core_conf_()
-
-    def get_conv_opinfo_(self, node) -> OpInfo:
-        """ Get OpInfo for the first (and only) convolution of the partition """ 
-
-        graph = self.graph
-        init_tvs = graph.init_tvs
-        (input_name,)   = (x for x in node.input if x not in init_tvs)
-        (weights_name,) = (x for x in node.input if x in init_tvs)
-        (output_name,)  = node.output
-
-        self.conv_ps_ = onnx_conv_get_params(self.graph.g, node)
-
-        # set padding to the underlying object
-        self.graph.objs_info[input_name].padding = self.conv_ps_.get_input_padding()
-
-        # TODO: The ONNX Conv operator has a batch size. Seems to me that the
-        # best thing to do would be to deal with batch size externally (i.e.,
-        # at an external loop that performs the transfers from/to the
-        # accelerator), and transform the ONNX nodes to have a batch size of 1.
-        assert onnx_conv_get_batch(self.graph.g, node) == 1
-
-        oi = OpInfo_CONV(self.conv_ps_,
-                           s_id="S%d" % (self.pid,),
-                           vin_id=input_name,
-                           vout_id=output_name)
-        self.conv_domain_ = oi.get_domain()
-        return oi
-
-    def get_add_opinfo_(self, node) -> OpInfo:
-        (in1, in2) = node.input
-        (out,) =  node.output
-        a_shape = self.graph.get_value_shape(in1)
-        b_shape = self.graph.get_value_shape(in2)
-        y_shape = self.graph.get_value_shape(out)
-        assert a_shape == b_shape
-        assert a_shape == y_shape
-        ret = OpInfo_ADD(self.conv_domain_, a_shape, in1, in2, out)
-        return ret
-
-    def get_node_opinfo_(self, nid: int) -> OpInfo:
-        """ Return pipeline OpInfo for a given node.
-
-        I.e., we translate a single ONNX node into a pipeline operation.
-        """
-        node = self.graph.g.node[nid]
-        # The first (and only the first) node of the partition has to be a CONV
-        # node.  self.get_conv_opinfo_() will return the OpInfo for the node,
-        # and also set fields such as self.conv_domain_
-        if self.conv_domain_ is None:
-            if node.op_type != 'Conv':
-                raise ValueError("First partition node is not Conv (%s)" % (node.op_type,))
-            return self.get_conv_opinfo_(node)
-        elif node.op_type == 'Conv':
-            raise ValueError("Conv node can only be the first in a partition")
-        elif node.op_type == 'Add':
-            return self.get_add_opinfo_(node)
-        else:
-            raise ValueError("Unknown node type %s" % (node.op_type, ))
-
-    def get_stage_info_(self) -> pl.StageInfo:
-        """ Return the stage info the specified partition """
-        partition = self.graph.partitions[self.pid]
-        ois = [self.get_node_opinfo_(ni) for ni in partition.nis]
-        return pl.StageInfo(ois)
-
-    def get_core_conf_(self) -> pl.CoreConf:
-        """ Return the core configuration for this particular stage """
-        graph = self.graph
-        conv_ni = graph.partitions[self.pid].nis[0]
-        conv_node = graph.g.node[conv_ni]
-        if conv_node.op_type != 'Conv':
-            raise ValueError("First partition node is not Conv (%s)" % (conv_1node.op_type,))
-
-        (weights_name,) = (x for x in conv_node.input if x in graph.init_tvs)
-
-        ret = pl.CoreConf(
-            np.array(graph.init_tvs[weights_name].float_data)
-              .reshape(self.conv_ps_.eval("(f.l, f.d*f.h*f.w)"))
-        )
-        return ret
+    def set_conv_ps(self, conv_ps):
+        self.conv_ps_ = conv_ps
 
 class OnnxGraph:
     """ This class wraps an ONNX module so that it can be used for our purposes """
     m: onnx.ModelProto
-    # NB: A given edge might be an input to multiple nods, but it can only
-    # be the output of a single node
+
+    # NB: An edge might be an input to multiple nodes,
+    # but it can only be the output of a single node
     inps: typing.Dict[EdgeName, typing.List[NodeId]]
     outs: typing.Dict[EdgeName, NodeId]
     partitions: typing.List[Partition]
 
     objs_info: typing.Dict[str, pl.ObjectInfo]
-    builders: typing.List[StageBuilder]
 
     # dicts for easy lookip
     # Value info for graph input, output, and intermediate valudes
@@ -171,6 +76,7 @@ class OnnxGraph:
         self.m = onnx_m
 
         (self.inps, self.outs) = onnx_get_ins_outs(self.g)
+
         self.partitions = self.partition_()
 
         self.input_vis =  dict((e.name,e) for e in self.g.input)
@@ -182,8 +88,8 @@ class OnnxGraph:
             (name, pl.ObjectInfo(shape))
                 for (name, shape) in get_obj_shapes_nobatch(self.g).items()
         )
-        self.builders = [StageBuilder(self, pid) for pid in range(len(self.partitions))]
 
+        self.process_partitions()
 
     def get_value_info(self, e: str):
         for d in (self.input_vis, self.output_vis, self.inter_vis):
@@ -283,20 +189,116 @@ class OnnxGraph:
         partlist.append(part)
         return partlist
 
+    def process_partitions_1(self):
+        init_tvs = self.init_tvs
+        # Pass 1: set conv_ps and objs_info
+        for part in self.partitions:
+            ni0 = part.nis[0]
+            node0 = self.g.node[ni0]
+            if node0.op_type != 'Conv':
+                raise ValueError("First partition node is not Conv (%s)" % (node0.op_type,))
+            # input name for the convolution node
+            # set conv_ps for partition
+            conv_ps = onnx_conv_get_params(self.g, node0)
+            part.conv_ps = conv_ps
+            # set padding to the input node
+            (input_name,)   = (x for x in node0.input if x not in init_tvs)
+            self.objs_info[input_name].padding = part.conv_ps.get_input_padding()
+
+    def process_partitions_2(self):
+        # Pass 2: set stage info
+        init_tvs = self.init_tvs
+        for (pid, part) in enumerate(self.partitions):
+            opinfos = []
+            for (idx,ni) in enumerate(part.nis):
+                oi = None
+                node = self.g.node[ni]
+                if idx == 0: # first node!
+                    assert getattr(part, "conv_domain", None) is None
+                    assert node.op_type == 'Conv'
+                    (input_name,)   = (x for x in node.input if x not in init_tvs)
+                    (weights_name,) = (x for x in node.input if x in init_tvs)
+                    (output_name,)  = node.output
+
+                    # TODO: The ONNX Conv operator has a batch size. Seems to
+                    # me that the best thing to do would be to deal with batch
+                    # size externally (i.e., at an external loop that performs
+                    # the transfers from/to the accelerator), and transform the
+                    # ONNX nodes to have a batch size of 1.
+                    assert onnx_conv_get_batch(self.g, node) == 1
+
+                    out_padding = self.objs_info[output_name].padding
+                    part.conv_ps.set_p_out_from_padding(out_padding)
+
+                    oi = OpInfo_CONV(part.conv_ps,
+                                       s_id="S%d" % (pid,),
+                                       vin_id=input_name,
+                                       vout_id=output_name)
+                    part.conv_domain = oi.get_domain()
+
+                elif node.op_type == 'Add':
+                    assert part.conv_domain is not None
+                    (in1, in2) = node.input
+                    (out,) =  node.output
+                    a_shape = self.get_value_shape(in1)
+                    b_shape = self.get_value_shape(in2)
+                    y_shape = self.get_value_shape(out)
+                    assert a_shape == b_shape
+                    assert a_shape == y_shape
+                    oi = OpInfo_ADD(part.conv_domain, a_shape, in1, in2, out)
+                elif node.op_type == 'Conv':
+                    raise ValueError("Conv node can only be the first in a partition")
+                else:
+                    raise ValueError("Unknown node type %s" % (node.op_type, ))
+
+                assert oi is not None
+                opinfos.append(oi)
+            part.stage_info = pl.StageInfo(opinfos)
+
+    def process_partitions_3(self):
+        # Pass 3: set core_conf
+        init_tvs = self.init_tvs
+        for (pid, part) in enumerate(self.partitions):
+            conv_ni = self.partitions[pid].nis[0]
+            conv_node = self.g.node[conv_ni]
+            (weights_name,) = (x for x in conv_node.input if x in init_tvs)
+
+            part.core_conf = pl.CoreConf(
+                np.array(init_tvs[weights_name].float_data)
+                  .reshape(part.conv_ps.eval("(f.l, f.d*f.h*f.w)"))
+            )
+
+    def process_partitions(self):
+        self.process_partitions_1()
+        self.process_partitions_2()
+        self.process_partitions_3()
+
     def get_stage_info(self, pid) -> pl.StageInfo:
-        return self.builders[pid].stage_info
+        return self.partitions[pid].stage_info
 
     def get_core_conf(self, pid) -> pl.CoreConf:
-        return self.builders[pid].core_conf
+        return self.partitions[pid].core_conf
 
 def test_onnx_residual_2d():
-    # Create the following ONNX graph:
+    # Create the following ONNX graph
+    # (this is what onnx_mk_simple_residual does)
     #
     #  CONV2D ---> CONV2D ---> ADD
     #          |                ^
     #          |                |
     #          +--------------- +
     #
+    # CONV2D
+    #   input:  in
+    #   output: v1
+    #   weights: w1
+    # CONV2D
+    #   input:  v1
+    #   output: v2
+    #   weights: w2
+    # ADD
+    #  input: v1,v2
+    #  output: out
     conv1_padding = 1
     conv2_padding = 1
 
@@ -337,17 +339,42 @@ def test_onnx_residual_2d():
     inp = onnx_rand_input(onnx_m)
     for (inp_name, inp_data) in inp.items():
         obj_info = graph.objs_info[inp_name]
-        data = np.random.rand(*obj_info.shape)
+        assert inp_data.shape == (1,) + obj_info.shape # NB: batching
+        # data = np.random.rand(*obj_info.shape)
+        data = inp_data[0]
         data = np.pad(data, obj_info.padding)
         obj = pline.get_object(inp_name)
         obj[...] = data
 
     # Execute the pipeline
+    print_info = False
+    for iters in pline.tick_gen():
+        if print_info:
+            print("*"*80)
+        for (s,i) in iters.items():
+            if print_info:
+                print("%s: %s" % (s, i))
+        if print_info:
+            print("*"*80)
+    print("%s> DONE" % ("-"*30,))
+
+    # Get pipeline results
+    pline_out = pline.get_object('out')
+    pline_v1 = pline.get_object('v1')
 
     # Execute using onnxruntime
     onnx.save(onnx_m, 'simple_residual_2d.onnx')
     sess = onnxrt.InferenceSession('simple_residual_2d.onnx')
     out = sess.run(None, inp)
+
+    # Execute using manual ops
+    in_m = np.pad(inp['in'][0], graph.objs_info['in'].padding)
+    w1_m = np.array(graph.init_tvs["w1"].float_data).reshape(conv1_ps.get_filters_shape())
+    v1_m = conv.conv2d_simple(in_m, w1_m, conv1_ps)
+    v1_m = np.pad(v1_m, graph.objs_info['v1'].padding)
+    np.testing.assert_allclose(v1_m, pline_v1, err_msg="pipeline v1  does not match manual v1")
+
+    np.testing.assert_allclose(out[0][0,:], pline_out, err_msg="OUT does not match")
 
     return graph
 
