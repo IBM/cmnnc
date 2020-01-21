@@ -335,7 +335,7 @@ def test_residual_1d():
             WR_a("{{ S2[s2] -> O3[o3] : 0 <= s2 < {O3} and o3 = s2 }}".format(**params)),
         ]),
         pl.OpInfo("ADD", [
-            RD_a("{{ S2[s2] -> O1[o1]   : 0 <= s2 < {O3} and o1  = s2 + {P2} }}".format(**params)),
+            RD_a("{{ S2[s2] -> O1[o1]   : 0 <= s2 < {O3} and o1  = s2 }}".format(**params)),
             RD_a("{{ S2[s2] -> O3[o3]   : 0 <= s2 < {O3} and o3  = s2 }}".format(**params)),
             WR_a("{{ S2[s2] -> OUT[out] : 0 <= s2 < {O3} and out = s2 }}".format(**params)),
         ])

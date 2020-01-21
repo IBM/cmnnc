@@ -11,7 +11,7 @@ from util import check_class_hints
 
 @dc.dataclass(init = False)
 class ObjectInfo:
-    shape:   typing.Tuple[int,...]
+    shape:   typing.Tuple[int,...] # (unpadded) shape
     # NB: padding is something that can be passed to np.pad
     padding: typing.Optional[typing.Tuple[typing.Tuple[int,int], ...]]
 
@@ -28,3 +28,12 @@ class ObjectInfo:
 
     def get_padded_shape(self):
         return tuple(x + p_s + p_e for (x, (p_s, p_e)) in zip(self.shape, self.padding))
+
+    def get_unpadded_slice(self, np_arr):
+        """ Given whatever padding this object has, return a non-padded slice """
+        assert np_arr.shape == self.get_padded_shape()
+        slices = []
+        for (p_s, p_e) in self.padding:
+            p_e = None if p_e == 0 else -p_e
+            slices.append(slice(p_s, p_e))
+        return np_arr[tuple(slices)]

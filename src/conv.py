@@ -94,11 +94,11 @@ class Conv2DParams:
         return (self.f.l, self.f.d, self.f.h, self.f.w)
 
     def get_input_padding(self):
-        """ Return something that you can pass to numpy.pad() """
+        """ Return something that can be passed to numpy.pad() """
         return ((0,0), (self.p, self.p), (self.p, self.p))
 
     def get_output_padding(self):
-        """ Return something that you can pass to numpy.pad() """
+        """ Return something that can be passed to numpy.pad() """
         return ((0,0), (self.p_out, self.p_out), (self.p_out, self.p_out))
 
     def set_p_out_from_padding(self, padding):
@@ -245,11 +245,11 @@ class Conv1DParams:
         return (self.f.l, self.f.d, self.f.w)
 
     def get_input_padding(self):
-        """ Return something that you can pass to numpy.pad() """
+        """ Return something that can be passed to numpy.pad() """
         return ((0,0), (self.p, self.p))
 
     def get_output_padding(self):
-        """ Return something that you can pass to numpy.pad() """
+        """ Return something that can be passed to numpy.pad() """
         return ((0,0), (self.p_out, self.p_out))
 
     def get_input_shape(self, *, pad: bool = False):

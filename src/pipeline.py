@@ -497,10 +497,12 @@ class Core:
     # NB: For now, we just keep objects as np arrays. Eventually, we might want
     # to map them to a linear buffer representing the core's SRAM.
     objs: typing.Dict[str, np.ndarray]
+    objs_info: typing.Dict[str, ObjectInfo]
 
     def __init__(self):
         self.xbar_m = None
         self.objs = {}
+        self.objs_info = {}
         self.internal_objs = {}
 
     def configure(self, cnf: CoreConf):
@@ -514,27 +516,35 @@ class Core:
             raise ValueError("XBAR too small: XBAR width is %d, while given matrix shape is:%s" % (self.width, xbar_m.shape))
         self.xbar_m = xbar_m.copy()
 
-    def alloc_object(self, objname: str, shape: typing.Tuple[int, ...]):
-        print("Allocating %s (%s)" % (objname, shape))
-        obj = np.zeros(shape)
-        self.set_object(objname, obj)
+    def alloc_object(self, objname: str, info: ObjectInfo):
+        padded_shape = info.get_padded_shape()
+        print("Allocating %s (padded_shape:%s)" % (objname, padded_shape))
+        obj = np.zeros(padded_shape)
+        self.set_object(objname, obj, info)
 
-    def set_object(self, objname: str, obj: np.ndarray):
+    def set_object(self, objname: str, obj: np.ndarray, info: ObjectInfo):
         if objname in self.objs:
             raise ValueError("object %s already exists" % (objname,))
         self.objs[objname] = obj
+        if objname in self.objs_info:
+            raise ValueError("info for object %s already exists" % (objname,))
+        self.objs_info[objname] = info
 
     def get_object(self, objname: str):
         return self.objs[objname]
 
-    def alloc_internal_object(self, objname: str, shape: typing.Tuple[int, ...]):
-        obj = np.zeros(shape)
-        self.set_internal_object(objname, obj)
+    def alloc_internal_object(self, objname: str, info: ObjectInfo):
+        padded_shape = info.get_padded_shape()
+        obj = np.zeros(padded_shape)
+        self.set_internal_object(objname, obj, info)
 
-    def set_internal_object(self, objname: str, obj: np.ndarray):
+    def set_internal_object(self, objname: str, obj: np.ndarray, info: ObjectInfo):
         if objname in self.internal_objs:
             raise ValueError("internal object %s already exists" % (objname,))
         self.internal_objs[objname] = obj
+        if objname in self.objs_info:
+            raise ValueError("info for object %s already exists" % (objname,))
+        self.objs_info[objname] = info
 
     def get_internal_object(self, objname: str):
         return self.internal_objs[objname]
@@ -566,7 +576,13 @@ class Core:
 
         return ret
 
-    def read_object(self, objstr, rd_is, results):
+    def read_object(self, objstr, rd_is, unpad_oi=None):
+        """ Read data from object local to this core
+
+        objstr: name of th eobject
+        rd_is: indices to read
+        unpad_oi: object info if we want to "unpad" the object, or None
+        """
         # An object is either a core-local object or an intermediate result from this set of operations.
         if objstr in self.objs:
             obj = self.objs[objstr]
@@ -574,6 +590,9 @@ class Core:
             obj = self.internal_objs[objstr]
         else:
             raise ValueError("object %s not found in local objects (%s) or intermediate results (%s)" % (objstr, ','.join(self.objs), ','.join(self.internal_objs)))
+
+        if unpad_oi is not None:
+            obj = unpad_oi.get_unpadded_slice(obj)
 
         # NB: not sure if we need to deal with multi-dimensional objects or how
         # to. For now assume that objects stored on cores are 1D
@@ -630,7 +649,7 @@ class Core:
                 if execute_ops_debug_:
                     print("    MxV: RD obj=%s is=%s" % (rd_objstr, rd_is))
                 # Fill input vector for mxv
-                x = self.read_object(rd_objstr, rd_is, results)
+                x = self.read_object(rd_objstr, rd_is)
                 y = np.matmul(self.xbar_m, x)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
                     if execute_ops_debug_:
@@ -640,10 +659,22 @@ class Core:
                 if len(op.accesses["RD"]) != 2:
                     raise ValueError("ADD: expecting 2 read arguments (got %d)." % (len(op.accesses['RD'], )))
                 rd_accesses = list(op.accesses["RD"].items())
+
                 (rd_objstr1, rd_is1) = rd_accesses[0]
-                x1 = self.read_object(rd_objstr1, rd_is1, results)
+                obj1_oi = self.objs_info[rd_objstr1]
+
                 (rd_objstr2, rd_is2) = rd_accesses[1]
-                x2 = self.read_object(rd_objstr2, rd_is2, results)
+                obj2_oi = self.objs_info[rd_objstr2]
+
+                # TODO: There are some operations that are required to read the
+                # padded object (e.g., CONV) and some (e.g., ADD) that do not.
+                # We are curretnly handling this here by passing the
+                # appropriate object_info if we want to unpad. However, a
+                # better solution would be to just change access relations
+                # accordingly. Once we do that, we can remove this here.
+                x1 = self.read_object(rd_objstr1, rd_is1, unpad_oi=obj1_oi)
+                x2 = self.read_object(rd_objstr2, rd_is2, unpad_oi=obj2_oi)
+
                 if execute_ops_debug_:
                     print("    ADD: RD1 obj=%s is=%s vs=%s" % (rd_objstr1, rd_is1, x1))
                     print("    ADD: RD2 obj=%s is=%s vs=%s" % (rd_objstr2, rd_is2, x2))
@@ -765,11 +796,11 @@ class Pipeline:
             if obj.is_internal():
                 print("Object %s is internal to %s." % (obj.name, obj.reader))
                 reader_stage = self.p_stages[obj.reader]
-                reader_stage.core.alloc_internal_object(obj.name, obj.info.get_padded_shape())
+                reader_stage.core.alloc_internal_object(obj.name, obj.info)
 
             elif obj.reader is not None:
                 reader_stage = self.p_stages[obj.reader]
-                reader_stage.core.alloc_object(obj.name, obj.info.get_padded_shape())
+                reader_stage.core.alloc_object(obj.name, obj.info)
                 if obj.writer is None:
                     print("Object %s read by %s has no writer. Assuming it always exists." % (obj.name, obj.reader))
                     reader_stage.set_dont_wait_for_reads(obj.name)
