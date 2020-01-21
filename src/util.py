@@ -12,9 +12,11 @@ import typing
 
 class xdict(dict):
     """dot.notation access to dictionary attributes"""
+
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
+
 
 class xparams(xdict):
     def eval(self, expr):
@@ -25,6 +27,7 @@ class xparams(xdict):
         """ set a parameter based on an expression"""
         assert p not in self
         self[p] = self.eval(expr)
+
 
 def check_class_hints(obj):
     """ Verify that the class type hints of an object are satisfied """

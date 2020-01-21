@@ -17,10 +17,12 @@ import conv
 NodeId = int
 EdgeName = str
 
+
 def onnx_get_init_data(graph, name):
     for init in graph.initializer:
         if init.name == name:
             return init
+
 
 def onnx_rand_input(model: onnx.ModelProto):
     """ Create random inputs for a given ONNX model """
@@ -33,10 +35,13 @@ def onnx_rand_input(model: onnx.ModelProto):
         # print(inp.name)
     return ret
 
+
 def onnx_conv_get_batch(graph: onnx.GraphProto, node) -> int:
     """ Get the batch size of an ONNX Conv node """
-    if node.op_type != 'Conv':
-        raise TypeError("Expecting type 'Conv', but got type:'%s'" (node.op_type,))
+    if node.op_type != "Conv":
+        raise TypeError(
+            "Expecting type 'Conv', but got type:'%s'"(node.op_type,)
+        )
 
     # Input is not in the initializer data, while weights are
     init_names = set(x.name for x in graph.initializer)
@@ -47,10 +52,12 @@ def onnx_conv_get_batch(graph: onnx.GraphProto, node) -> int:
         if vi.name == input_name:
             inp = vi
             break
-    else: raise AssertionError("Did not find input. Bailing out")
+    else:
+        raise AssertionError("Did not find input. Bailing out")
 
     batch_size = inp.type.tensor_type.shape.dim[0].dim_value
     return batch_size
+
 
 def onnx_get_obj_shapes(graph: onnx.GraphProto):
     ret = {}
@@ -58,15 +65,18 @@ def onnx_get_obj_shapes(graph: onnx.GraphProto):
         ret[vi.name] = tuple(x.dim_value for x in vi.type.tensor_type.shape.dim)
     return ret
 
+
 def onnx_conv_get_params(graph: onnx.GraphProto, node):
     """ Create a Conv2DParams structure from an ONNX Conv node """
-    if node.op_type != 'Conv':
-        raise TypeError("Expecting type 'Conv', but got type:'%s'" (node.op_type,))
-    attrs = dict( (x.name,x) for x in node.attribute )
+    if node.op_type != "Conv":
+        raise TypeError(
+            "Expecting type 'Conv', but got type:'%s'"(node.op_type,)
+        )
+    attrs = dict((x.name, x) for x in node.attribute)
 
     # Padding: for now, fail if there are different padding for different
     # dimensions
-    pads = attrs['pads'].ints
+    pads = attrs["pads"].ints
     p = pads[0]
     if not all([p == x for x in pads[1:]]):
         raise NotImplementedError("pads: %s not supported" % (pads,))
@@ -86,14 +96,18 @@ def onnx_conv_get_params(graph: onnx.GraphProto, node):
         if vi.name == input_name:
             inp = vi
             break
-    else: raise AssertionError("Did not find input. Bailing out")
+    else:
+        raise AssertionError("Did not find input. Bailing out")
 
     # Try to find the weights in the initializer part of the graph
     for vi in graph.initializer:
         if vi.name == weights_name:
             weights = vi
             break
-    else: raise AssertionError("Did not find weights in initalizer data. Bailing out")
+    else:
+        raise AssertionError(
+            "Did not find weights in initalizer data. Bailing out"
+        )
 
     # https://github.com/onnx/onnx/blob/master/docs/Operators.md#Conv:
     #    The weight tensor that will be used in the convolutions; has size (M x
@@ -106,7 +120,7 @@ def onnx_conv_get_params(graph: onnx.GraphProto, node):
         w=weights.dims[-1],
         h=weights.dims[-2],
         d=weights.dims[-3],
-        l=weights.dims[-4]
+        l=weights.dims[-4],
     )
 
     # https://github.com/onnx/onnx/blob/master/docs/Operators.md#Conv:
@@ -119,38 +133,44 @@ def onnx_conv_get_params(graph: onnx.GraphProto, node):
     #    DATA_FEATURE, DATA_FEATURE ...].
     # NB: We ignore the batch size
     i = conv.Conv2DInParams(
-        w = inp.type.tensor_type.shape.dim[-1].dim_value,
-        h = inp.type.tensor_type.shape.dim[-2].dim_value,
-        d = inp.type.tensor_type.shape.dim[-3].dim_value
+        w=inp.type.tensor_type.shape.dim[-1].dim_value,
+        h=inp.type.tensor_type.shape.dim[-2].dim_value,
+        d=inp.type.tensor_type.shape.dim[-3].dim_value,
     )
 
     conv_ps = conv.Conv2DParams(
-        i = i,
-        f = f,
-        p = p,
+        i=i,
+        f=f,
+        p=p,
         # TODO: deal with strides
-        s = 1,
+        s=1,
         # p_out has to be set later
-        p_out = None,
+        p_out=None,
     )
 
-    #print("%s" % (conv_ps,))
+    # print("%s" % (conv_ps,))
     return conv_ps
 
-def onnx_get_ins_outs(graph: onnx.GraphProto) \
-    -> typing.Tuple[typing.Dict[EdgeName, typing.List[NodeId]],
-                    typing.Dict[EdgeName, NodeId]]:
 
-        ret = (inps, outs) = ({},{})
-        for (nid, node) in enumerate(graph.node):
-            for e_in in node.input:
-                if e_in not in inps:
-                    inps[e_in] = []
-                inps[e_in].append(nid)
-            del e_in
+def onnx_get_ins_outs(
+    graph: onnx.GraphProto,
+) -> typing.Tuple[
+    typing.Dict[EdgeName, typing.List[NodeId]], typing.Dict[EdgeName, NodeId]
+]:
 
-            for e_out in node.output:
-                assert e_out not in outs, "Edge %s is output of multiple nodes: %d, %d" % (e_out, outs[e_out], nid)
-                outs[e_out] = nid
-            del e_out
-        return ret
+    ret = (inps, outs) = ({}, {})
+    for (nid, node) in enumerate(graph.node):
+        for e_in in node.input:
+            if e_in not in inps:
+                inps[e_in] = []
+            inps[e_in].append(nid)
+        del e_in
+
+        for e_out in node.output:
+            assert e_out not in outs, (
+                "Edge %s is output of multiple nodes: %d, %d"
+                % (e_out, outs[e_out], nid,)
+            )
+            outs[e_out] = nid
+        del e_out
+    return ret

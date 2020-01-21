@@ -13,18 +13,25 @@ import onnx
 
 import pipeline as pl
 from op_info import OpInfo_CONV, OpInfo_ADD
-from onnx_util import onnx_conv_get_params, onnx_conv_get_batch, \
-                       onnx_get_obj_shapes, onnx_get_ins_outs, \
-                       NodeId, EdgeName
+from onnx_util import (
+    onnx_conv_get_params,
+    onnx_conv_get_batch,
+    onnx_get_obj_shapes,
+    onnx_get_ins_outs,
+    NodeId,
+    EdgeName,
+)
+
 
 def get_obj_shapes_nobatch(g):
     """ Get object shapes for a graph, but ignore batch parameter """
     obj_shapes = onnx_get_obj_shapes(g)
     for objname in obj_shapes:
         shape = obj_shapes[objname]
-        assert shape[0] == 1 # batch size
+        assert shape[0] == 1  # batch size
         obj_shapes[objname] = shape[1:]
     return obj_shapes
+
 
 @dc.dataclass(init=False)
 class Partition:
@@ -34,7 +41,8 @@ class Partition:
      * __init__()
      * set_conv_ps(): set the parameters for the convlution of this partition.
     """
-    nis: typing.List[NodeId] # nodes that belong to this partition
+
+    nis: typing.List[NodeId]  # nodes that belong to this partition
 
     def __init__(self, *nis):
         self.nis = list(nis)
@@ -42,8 +50,10 @@ class Partition:
     def set_conv_ps(self, conv_ps):
         self.conv_ps_ = conv_ps
 
+
 class OnnxGraph:
     """ This class wraps an ONNX module so that it can be used for our purposes """
+
     m: onnx.ModelProto
 
     # NB: An edge might be an input to multiple nodes,
@@ -74,14 +84,14 @@ class OnnxGraph:
 
         self.partitions = self.partition_()
 
-        self.input_vis =  dict((e.name,e) for e in self.g.input)
-        self.output_vis = dict((e.name,e) for e in self.g.output)
-        self.inter_vis = dict((e.name,e) for e in self.g.value_info)
-        self.init_tvs = dict((v.name,v) for v in self.g.initializer)
+        self.input_vis = dict((e.name, e) for e in self.g.input)
+        self.output_vis = dict((e.name, e) for e in self.g.output)
+        self.inter_vis = dict((e.name, e) for e in self.g.value_info)
+        self.init_tvs = dict((v.name, v) for v in self.g.initializer)
 
         self.objs_info = dict(
             (name, pl.ObjectInfo(shape))
-                for (name, shape) in get_obj_shapes_nobatch(self.g).items()
+            for (name, shape) in get_obj_shapes_nobatch(self.g).items()
         )
 
         self.process_partitions()
@@ -92,7 +102,7 @@ class OnnxGraph:
                 return d[e]
         raise ValueError("No value info for %s" % (e,))
 
-    def get_value_shape(self, e: str) -> typing.Tuple[int,...]:
+    def get_value_shape(self, e: str) -> typing.Tuple[int, ...]:
         shape = self.get_value_info(e).type.tensor_type.shape
         return tuple(x.dim_value for x in shape.dim)
 
@@ -105,7 +115,7 @@ class OnnxGraph:
         initializers = set((x.name for x in self.g.initializer))
         non_internal = inputs.union(initializers)
 
-        for (i,n) in enumerate(self.g.node):
+        for (i, n) in enumerate(self.g.node):
             n_inputs = set(n.input)
             diff = n_inputs.difference(non_internal)
             if len(diff) == 0:
@@ -124,10 +134,11 @@ class OnnxGraph:
         """ Topological sort of the node ids """
         # https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
         white = set(range(len(self.g.node)))
-        gray  = set()
+        gray = set()
         black = set()
 
         ret = []
+
         def visit(nid: NodeId):
             if nid in black:
                 return
@@ -173,13 +184,13 @@ class OnnxGraph:
         partlist = []
         for nid in tslist[1:]:
             node = self.g.node[nid]
-            if node.op_type == 'Conv':
+            if node.op_type == "Conv":
                 partlist.append(part)
                 part = Partition(nid)
-            elif node.op_type in ('Add',):
+            elif node.op_type in ("Add",):
                 part.nis.append(nid)
             else:
-                raise ValueError("Unknown node type %s" % (node.op_type, ))
+                raise ValueError("Unknown node type %s" % (node.op_type,))
 
         partlist.append(part)
         return partlist
@@ -190,30 +201,34 @@ class OnnxGraph:
         for part in self.partitions:
             ni0 = part.nis[0]
             node0 = self.g.node[ni0]
-            if node0.op_type != 'Conv':
-                raise ValueError("First partition node is not Conv (%s)" % (node0.op_type,))
+            if node0.op_type != "Conv":
+                raise ValueError(
+                    "First partition node is not Conv (%s)" % (node0.op_type,)
+                )
             # input name for the convolution node
             # set conv_ps for partition
             conv_ps = onnx_conv_get_params(self.g, node0)
             part.conv_ps = conv_ps
             # set padding to the input node
-            (input_name,)   = (x for x in node0.input if x not in init_tvs)
-            self.objs_info[input_name].padding = part.conv_ps.get_input_padding()
+            (input_name,) = (x for x in node0.input if x not in init_tvs)
+            self.objs_info[
+                input_name
+            ].padding = part.conv_ps.get_input_padding()
 
     def process_partitions_2(self):
         # Pass 2: set stage info
         init_tvs = self.init_tvs
         for (pid, part) in enumerate(self.partitions):
             opinfos = []
-            for (idx,ni) in enumerate(part.nis):
+            for (idx, ni) in enumerate(part.nis):
                 oi = None
                 node = self.g.node[ni]
-                if idx == 0: # first node!
+                if idx == 0:  # first node!
                     assert getattr(part, "conv_domain", None) is None
-                    assert node.op_type == 'Conv'
-                    (input_name,)   = (x for x in node.input if x not in init_tvs)
+                    assert node.op_type == "Conv"
+                    (input_name,) = (x for x in node.input if x not in init_tvs)
                     (weights_name,) = (x for x in node.input if x in init_tvs)
-                    (output_name,)  = node.output
+                    (output_name,) = node.output
 
                     # TODO: The ONNX Conv operator has a batch size. Seems to
                     # me that the best thing to do would be to deal with batch
@@ -225,26 +240,30 @@ class OnnxGraph:
                     out_padding = self.objs_info[output_name].padding
                     part.conv_ps.set_p_out_from_padding(out_padding)
 
-                    oi = OpInfo_CONV(part.conv_ps,
-                                       s_id="S%d" % (pid,),
-                                       vin_id=input_name,
-                                       vout_id=output_name)
+                    oi = OpInfo_CONV(
+                        part.conv_ps,
+                        s_id="S%d" % (pid,),
+                        vin_id=input_name,
+                        vout_id=output_name,
+                    )
                     part.conv_domain = oi.get_domain()
 
-                elif node.op_type == 'Add':
+                elif node.op_type == "Add":
                     assert part.conv_domain is not None
                     (in1, in2) = node.input
-                    (out,) =  node.output
+                    (out,) = node.output
                     a_shape = self.get_value_shape(in1)
                     b_shape = self.get_value_shape(in2)
                     y_shape = self.get_value_shape(out)
                     assert a_shape == b_shape
                     assert a_shape == y_shape
                     oi = OpInfo_ADD(part.conv_domain, a_shape, in1, in2, out)
-                elif node.op_type == 'Conv':
-                    raise ValueError("Conv node can only be the first in a partition")
+                elif node.op_type == "Conv":
+                    raise ValueError(
+                        "Conv node can only be the first in a partition"
+                    )
                 else:
-                    raise ValueError("Unknown node type %s" % (node.op_type, ))
+                    raise ValueError("Unknown node type %s" % (node.op_type,))
 
                 assert oi is not None
                 opinfos.append(oi)
@@ -259,8 +278,9 @@ class OnnxGraph:
             (weights_name,) = (x for x in conv_node.input if x in init_tvs)
 
             part.core_conf = pl.CoreConf(
-                np.array(init_tvs[weights_name].float_data)
-                  .reshape(part.conv_ps.eval("(f.l, f.d*f.h*f.w)"))
+                np.array(init_tvs[weights_name].float_data).reshape(
+                    part.conv_ps.eval("(f.l, f.d*f.h*f.w)")
+                )
             )
 
     def process_partitions(self):
@@ -273,4 +293,3 @@ class OnnxGraph:
 
     def get_core_conf(self, pid) -> pl.CoreConf:
         return self.partitions[pid].core_conf
-

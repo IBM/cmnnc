@@ -41,6 +41,7 @@ from isl_utils import isl2py_fn, isl_map_to_ast, isl_rel_loc_to_max_iter
 from pyast_utils import StructureTupleYields
 from util import check_class_hints
 
+
 @dc.dataclass(init=False)
 class StageInfo:
     """ Polyhedral information for a pipeline stage
@@ -63,16 +64,21 @@ class StageInfo:
     stage, and vice-versa for unconnected outputs). These are the read and
     write access relations for a stage.
     """
+
     ops: typing.List[OpInfo]
-    ro_objs: typing.Set[str] # Objects that this stage reads (external)
-    wo_objs: typing.Set[str] # Objects that this stage writes (external)
-    rw_objs: typing.Set[str] # Objects that this stage writes and reads (internal)
+    ro_objs: typing.Set[str]  # Objects that this stage reads (external)
+    wo_objs: typing.Set[str]  # Objects that this stage writes (external)
+    rw_objs: typing.Set[
+        str
+    ]  # Objects that this stage writes and reads (internal)
 
     def __init__(self, ops: typing.List[OpInfo]):
         if len(ops) == 0:
             raise ValueError("No operations provided (length is 0)")
-        if ops[0].op_ty != 'MxV':
-            raise ValueError("First operation should be MxV (instead is:%s)" % (ops[0].op_ty))
+        if ops[0].op_ty != "MxV":
+            raise ValueError(
+                "First operation should be MxV (instead is:%s)" % (ops[0].op_ty)
+            )
         self.ops = ops
 
         # all operations must have the same stage, and the same domain
@@ -92,25 +98,41 @@ class StageInfo:
             for acc in op.accesses:
                 objname = acc.get_obj_name()
                 if acc.a_ty == "RD":
-                    if objname in self.wo_objs: # Object was previously written, no read. Move it to rw
+                    if (
+                        objname in self.wo_objs
+                    ):  # Object was previously written, no read. Move it to rw
                         self.wo_objs.remove(objname)
                         self.rw_objs.add(objname)
-                    elif objname in self.ro_objs: # Object was previously read, do nothing
+                    elif (
+                        objname in self.ro_objs
+                    ):  # Object was previously read, do nothing
                         pass
-                    elif objname in self.rw_objs: # Object was previously written and read, do nothing
+                    elif (
+                        objname in self.rw_objs
+                    ):  # Object was previously written and read, do nothing
                         pass
-                    else: # First time seeing this object, put it into ro set
+                    else:  # First time seeing this object, put it into ro set
                         self.ro_objs.add(objname)
                 elif acc.a_ty == "WR":
                     if objname in self.wo_objs:
                         # Object was previously written, error
-                        raise ValueError("Object %s written in op %s (id:%d) but also written previously" % (objname, op.op_ty, op_id))
+                        raise ValueError(
+                            "Object %s written in op %s (id:%d) but also written previously"
+                            % (objname, op.op_ty, op_id)
+                        )
                     if objname in self.ro_objs:
-                        raise ValueError("Object %s written in op %s (id:%d) previously read" % (objname, op.op_ty, op_id))
+                        raise ValueError(
+                            "Object %s written in op %s (id:%d) previously read"
+                            % (objname, op.op_ty, op_id)
+                        )
                     if objname in self.ro_objs:
-                        raise ValueError("Object %s written in op %s (id:%d) previously write and read" % (objname, op.op_ty, op_id))
+                        raise ValueError(
+                            "Object %s written in op %s (id:%d) previously write and read"
+                            % (objname, op.op_ty, op_id)
+                        )
                     self.wo_objs.add(objname)
-                else: ValueError("Unknown access type: %s" % (acc.a_ty,))
+                else:
+                    ValueError("Unknown access type: %s" % (acc.a_ty,))
 
     def get_stage_name(self) -> str:
         return self.ops[0].get_stage_name()
@@ -120,10 +142,15 @@ class StageInfo:
 
     def get_obj_rd_rel(self, objname: str) -> isl.Map:
         if objname not in self.ro_objs:
-            raise ValueError("stage %s does not read from object %s"  % (self.get_stage_name(), objname))
+            raise ValueError(
+                "stage %s does not read from object %s"
+                % (self.get_stage_name(), objname)
+            )
         accs = []
         for op in self.ops:
-            accs.extend(a for a in op.rd_accesses() if a.get_obj_name() == objname)
+            accs.extend(
+                a for a in op.rd_accesses() if a.get_obj_name() == objname
+            )
         acc0 = accs[0]
         if len(accs) > 1:
             # raise NotImplementedError("I guess we need to combine multiple read accesses for object %s.\nAccesses:\n%s" %(objname, pp.pformat(accs),))
@@ -134,13 +161,19 @@ class StageInfo:
 
     def get_obj_wr_rel(self, objname: str) -> isl.Map:
         if objname not in self.wo_objs:
-            raise ValueError("stage %s does not write to object %s"  % (self.get_stage_name(), objname))
+            raise ValueError(
+                "stage %s does not write to object %s"
+                % (self.get_stage_name(), objname)
+            )
         accs = []
         for op in self.ops:
-            accs.extend(a for a in op.wr_accesses() if a.get_obj_name() == objname)
+            accs.extend(
+                a for a in op.wr_accesses() if a.get_obj_name() == objname
+            )
         assert len(accs) == 1, "Multiple writes on the same object not allowed"
 
         return accs[0].access
+
 
 def isl_map_to_pyfn(rel, fnname, s=None):
     """ Transform an isl map to a python function """
@@ -156,9 +189,12 @@ def isl_map_to_pyfn(rel, fnname, s=None):
     # generated function so that they yield a 2-tuple of tuples, one for the
     # doimain and one for the image.
     if s is None:
-        s = (_nin, _nout) = tuple(rel.space.dim(x) for x in (isl.dim_type.in_, isl.dim_type.out))
+        s = (_nin, _nout) = tuple(
+            rel.space.dim(x) for x in (isl.dim_type.in_, isl.dim_type.out)
+        )
     StructureTupleYields(s).visit(py)
     return py
+
 
 def rel_a_iter(rel_iter):
     # Accesses iterators (si.rd_a, and si.wr_a) iterate the relation from
@@ -173,7 +209,10 @@ def rel_a_iter(rel_iter):
         try:
             (idx, loc) = ri
         except ValueError:
-            print("%s: ri=%s cannot be packed into (idx,loc)" % (rel_iter.__name__, ri,))
+            print(
+                "%s: ri=%s cannot be packed into (idx,loc)"
+                % (rel_iter.__name__, ri,)
+            )
             raise
         if idx == last_idx:
             l.append(loc)
@@ -185,16 +224,21 @@ def rel_a_iter(rel_iter):
     if len(l) > 0:
         yield (last_idx, l)
 
+
 @dc.dataclass(init=False)
 class ExecOp:
     ty: str
-    accesses: typing.Dict[str, typing.Dict[str, typing.Optional[typing.List[typing.Tuple[int, ...]]]]]
+    accesses: typing.Dict[
+        str,
+        typing.Dict[str, typing.Optional[typing.List[typing.Tuple[int, ...]]]],
+    ]
 
     def __init__(self, ty, rd_objs, wr_objs):
         self.ty = ty
         self.accesses = {}
-        self.accesses['RD'] = dict((o, None) for o in rd_objs)
-        self.accesses['WR'] = dict((o, None) for o in wr_objs)
+        self.accesses["RD"] = dict((o, None) for o in rd_objs)
+        self.accesses["WR"] = dict((o, None) for o in wr_objs)
+
 
 class AccessIterator:
     idx: typing.Tuple[int, ...]
@@ -206,7 +250,7 @@ class AccessIterator:
             ExecOp(ty=op.op_ty, rd_objs=op.rd_objs(), wr_objs=op.wr_objs())
             for op in stage.si.ops
         ]
-        self.stage_name = stage.get_name() # For debugging messages
+        self.stage_name = stage.get_name()  # For debugging messages
         self.fns = []
 
     def set_access(self, op_id, a_ty, a_obj, a_list):
@@ -230,7 +274,9 @@ class AccessIterator:
                 if self.idx_ is None:
                     self.idx_ = idx
                 else:
-                    assert self.idx_ == idx, "Expecting idx=%s but got idx=%s" % (self.idx_, idx)
+                    assert (
+                        self.idx_ == idx
+                    ), "Expecting idx=%s but got idx=%s" % (self.idx_, idx,)
                 self.set_access(op_id, a_ty, obj, access_l)
                 yield
 
@@ -238,9 +284,12 @@ class AccessIterator:
             wrapped_fn = lambda: update_state_dec(rel_a_iter(fn))
             self.fns.append(wrapped_fn)
             return fn
+
         return decorator
 
-    def loop(self, inp_limit: typing.Optional[int] = None) -> typing.Iterator[typing.List[ExecOp]]:
+    def loop(
+        self, inp_limit: typing.Optional[int] = None
+    ) -> typing.Iterator[typing.List[ExecOp]]:
         for inp in itertools.count():
             if inp_limit is not None and inp >= inp_limit:
                 break
@@ -253,8 +302,8 @@ class AccessIterator:
                 self.reset_access()
             assert niters > 0
 
-class LocToMaxIterIterator:
 
+class LocToMaxIterIterator:
     def __init__(self, stage):
         # Maximum iteration allowed for every object that needs to be read
         #  if maximum iteration is None, no writes have happened yet.
@@ -263,13 +312,16 @@ class LocToMaxIterIterator:
         # Initialized generators
         self.max_iter_gs = {}
 
-        self.stage_name = stage.get_name() # debugging
+        self.stage_name = stage.get_name()  # debugging
 
     def register_iter_fn(self, obj):
         def max_iter_gen(fn):
             """ Python generator that consumers writes and updates self.obj_max_iter """
 
-            print("%s: Initializing max_iter_gen generator for object: %s (%s)" % (self.stage_name, obj, fn))
+            print(
+                "%s: Initializing max_iter_gen generator for object: %s (%s)"
+                % (self.stage_name, obj, fn)
+            )
             # inp  is the id of the input (typically image) being processed
             # This is used to maintain proper ordering when we wrap-around
             for inp in itertools.count():
@@ -278,10 +330,20 @@ class LocToMaxIterIterator:
                         new_write = yield
                         if new_write == write:
                             self.obj_max_iter[obj] = (inp,) + max_iter
-                            print("%s:\tGot expected write: %s. max_iter is now: %s" % (self.stage_name, new_write, self.obj_max_iter[obj]))
+                            print(
+                                "%s:\tGot expected write: %s. max_iter is now: %s"
+                                % (
+                                    self.stage_name,
+                                    new_write,
+                                    self.obj_max_iter[obj],
+                                )
+                            )
                             break
                         else:
-                            print("%s:\tGot %s, but expecting %s to change max_iter" % (self.stage_name, new_write, write))
+                            print(
+                                "%s:\tGot %s, but expecting %s to change max_iter"
+                                % (self.stage_name, new_write, write)
+                            )
 
         def decorator(fn):
             # Initialize generator
@@ -305,14 +367,20 @@ class LocToMaxIterIterator:
 
         def obj_rdy(idx, obj: str, max_iter) -> bool:
             if max_iter is None:
-                print("%s: max_iter for object %s unset. Reads not ready" % (self.stage_name, obj))
+                print(
+                    "%s: max_iter for object %s unset. Reads not ready"
+                    % (self.stage_name, obj)
+                )
                 return False
             assert isinstance(max_iter, tuple)
             assert len(idx) == len(max_iter)
             return idx <= max_iter
 
         # NB: if the iteratable is empty, all() returns true
-        return all(obj_rdy(idx, o, max_i) for (o, max_i) in self.obj_max_iter.items())
+        return all(
+            obj_rdy(idx, o, max_i) for (o, max_i) in self.obj_max_iter.items()
+        )
+
 
 class Stage:
     def __init__(self, si: StageInfo, param_vals=None):
@@ -339,7 +407,6 @@ class Stage:
         self.access_i = AccessIterator(self)
         self.loctomaxiter_i = LocToMaxIterIterator(self)
 
-
     def get_ro_objnames(self) -> typing.Set[str]:
         """ Return the objects that this stage reads (only) """
         return self.si.ro_objs
@@ -363,13 +430,17 @@ class Stage:
     def set_isl_rel_loc_to_max_iter(self, objname: str, rel: isl.Map):
         """ set the relation to compute the maximum iteration based on writes """
         if self.loctomaxiter_rel[objname] is not None:
-            raise ValueError("loctomaxiter_rel alredy set for object %s" % (objname,))
+            raise ValueError(
+                "loctomaxiter_rel alredy set for object %s" % (objname,)
+            )
         self.loctomaxiter_rel[objname] = rel
 
     def set_dont_wait_for_reads(self, objname):
         """ Remove objname from obj_max_iter so that we never wait for reads on this object """
         if self.loctomaxiter_rel[objname] is not None:
-            raise ValueError("loctomaxiter_rel alredy set for object %s" % (objname,))
+            raise ValueError(
+                "loctomaxiter_rel alredy set for object %s" % (objname,)
+            )
         self.loctomaxiter_i.set_dont_wait_for_reads(objname)
 
     def build_module(self):
@@ -389,10 +460,20 @@ class Stage:
             # If we could have the IST AST generate a single data access
             # description for all iterations, then we can revisit this.
             for acc in op.accesses:
-                fn_name = "%s_%02d_%s_%s_%s" % (self.get_name(), op_id, op.op_ty, acc.a_ty.lower(), acc.get_obj_name())
+                fn_name = "%s_%02d_%s_%s_%s" % (
+                    self.get_name(),
+                    op_id,
+                    op.op_ty,
+                    acc.a_ty.lower(),
+                    acc.get_obj_name(),
+                )
                 py = isl_map_to_pyfn(acc.access, fn_name)
-                s = "access_iter(op_id=%d, op_ty='%s', a_ty='%s', obj='%s')" \
-                  % (op_id, op.op_ty, acc.a_ty, acc.get_obj_name())
+                s = "access_iter(op_id=%d, op_ty='%s', a_ty='%s', obj='%s')" % (
+                    op_id,
+                    op.op_ty,
+                    acc.a_ty,
+                    acc.get_obj_name(),
+                )
                 dec_call = pyast.parse(s).body[0].value
                 py.decorator_list.append(dec_call)
                 body.append(py)
@@ -410,19 +491,20 @@ class Stage:
         ast_mod = pyast.Module(body=body)
         if self.print_ast_:
             s = "Module for %s" % (self.get_name(),)
-            print("-"*10, s, "-"*(80-10-len(s)-2))
+            print("-" * 10, s, "-" * (80 - 10 - len(s) - 2))
             # print(astpp_dump(ast_mod))
             # print("-"*80)
             print(pyastor.to_source(ast_mod))
-            print("-"*80)
-
+            print("-" * 80)
 
         pyast.fix_missing_locations(ast_mod)
         code = compile(ast_mod, "<generated>", "exec")
         ret = types.ModuleType("stage_%s" % (self.get_name()))
         ret.__dict__.update(self.param_vals)
-        ret.__dict__.update({'access_iter': self.access_i.register_iter_fn})
-        ret.__dict__.update({'loc_to_maxiter_iter': self.loctomaxiter_i.register_iter_fn})
+        ret.__dict__.update({"access_iter": self.access_i.register_iter_fn})
+        ret.__dict__.update(
+            {"loc_to_maxiter_iter": self.loctomaxiter_i.register_iter_fn}
+        )
         exec(code, ret.__dict__)
         return ret
 
@@ -447,7 +529,10 @@ class Stage:
         Execute the "snooping for SRAM writes" logic.
         """
 
-        print("%s: Callback on write: wr_obj:%s wr_idx:%s wr_val:%s" % (self.get_name(), wr_objstr, wr_idx, wr_val))
+        print(
+            "%s: Callback on write: wr_obj:%s wr_idx:%s wr_val:%s"
+            % (self.get_name(), wr_objstr, wr_idx, wr_val)
+        )
 
         # the write should be in the object that we read
         assert wr_objstr in self.si.ro_objs
@@ -485,14 +570,17 @@ class Stage:
     def __repr__(self):
         return "Stage(%s)" % (self.si,)
 
+
 class CoreConf:
     """ Core configuration """
+
     def __init__(self, xbar_m: np.ndarray):
         """ Intialize core configuration """
         self.xbar_m = xbar_m
 
+
 class Core:
-    width: int = 256 #
+    width: int = 256  #
     xbar_m: typing.Optional[np.ndarray]
     # NB: For now, we just keep objects as np arrays. Eventually, we might want
     # to map them to a linear buffer representing the core's SRAM.
@@ -513,7 +601,10 @@ class Core:
         # we accept whatever matrix we are given, as long as it fits into the
         # crossbar.
         if xbar_m_width > self.width or xbar_m_height > self.width:
-            raise ValueError("XBAR too small: XBAR width is %d, while given matrix shape is:%s" % (self.width, xbar_m.shape))
+            raise ValueError(
+                "XBAR too small: XBAR width is %d, while given matrix shape is:%s"
+                % (self.width, xbar_m.shape)
+            )
         self.xbar_m = xbar_m.copy()
 
     def alloc_object(self, objname: str, info: ObjectInfo):
@@ -538,7 +629,9 @@ class Core:
         obj = np.zeros(padded_shape)
         self.set_internal_object(objname, obj, info)
 
-    def set_internal_object(self, objname: str, obj: np.ndarray, info: ObjectInfo):
+    def set_internal_object(
+        self, objname: str, obj: np.ndarray, info: ObjectInfo
+    ):
         if objname in self.internal_objs:
             raise ValueError("internal object %s already exists" % (objname,))
         self.internal_objs[objname] = obj
@@ -561,14 +654,21 @@ class Core:
         for op in ops:
             for (rd_objstr, rd_is) in op.accesses["RD"].items():
                 if rd_objstr not in self.objs:
-                    raise ValueError("object %s does not exist in this core" % (rd_objstr,))
+                    raise ValueError(
+                        "object %s does not exist in this core" % (rd_objstr,)
+                    )
                 obj = self.objs[rd_objstr]
                 for idx in rd_is:
-                    assert isinstance(idx, tuple) and len(idx) == len(obj.shape), "idx=%s obj.shape=%s" % (idx, obj.shape)
+                    assert isinstance(idx, tuple) and len(idx) == len(
+                        obj.shape
+                    ), "idx=%s obj.shape=%s" % (idx, obj.shape)
                     try:
                         _ = obj[idx]
                     except:
-                        print("Failed to access %s (shape=%s) on %s" % (rd_objstr, obj.shape, idx))
+                        print(
+                            "Failed to access %s (shape=%s) on %s"
+                            % (rd_objstr, obj.shape, idx)
+                        )
                         raise
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
                     assert wr_objstr not in ret
@@ -589,7 +689,10 @@ class Core:
         elif objstr in self.internal_objs:
             obj = self.internal_objs[objstr]
         else:
-            raise ValueError("object %s not found in local objects (%s) or intermediate results (%s)" % (objstr, ','.join(self.objs), ','.join(self.internal_objs)))
+            raise ValueError(
+                "object %s not found in local objects (%s) or intermediate results (%s)"
+                % (objstr, ",".join(self.objs), ",".join(self.internal_objs))
+            )
 
         if unpad_oi is not None:
             obj = unpad_oi.get_unpadded_slice(obj)
@@ -600,15 +703,20 @@ class Core:
         for i, idx in enumerate(rd_is):
             # We check if there is a shape attribute to accomodate the stupid way we deal with intermediate results.
             # Once we fix this, we can remove the check.
-            assert isinstance(idx, tuple) and (getattr(obj, "shape", None) is None or len(idx) == len(obj.shape)), "idx=%s obj.shape=%s" % (idx, obj.shape)
+            assert isinstance(idx, tuple) and (
+                getattr(obj, "shape", None) is None
+                or len(idx) == len(obj.shape)
+            ), "idx=%s obj.shape=%s" % (idx, obj.shape)
             ret[i] = obj[idx]
         return ret
 
-    def handle_op_output(self,
-                         objstr: str,
-                         results: typing.Dict[str, np.ndarray],
-                         wr_is: typing.List[typing.Tuple[int, ...]],
-                         wr_vs: np.ndarray):
+    def handle_op_output(
+        self,
+        objstr: str,
+        results: typing.Dict[str, np.ndarray],
+        wr_is: typing.List[typing.Tuple[int, ...]],
+        wr_vs: np.ndarray,
+    ):
         """ Handle operation output
 
         objstr: object
@@ -627,14 +735,15 @@ class Core:
             assert objstr not in results
             results[objstr] = zip(wr_is, wr_vs)
 
-
     def execute_ops(self, ops: ExecOp) -> typing.Dict[str, np.ndarray]:
         """ Execute operations """
         if self.xbar_m is None:
             raise RuntimeError("core xbar matrix is undefined")
 
         execute_ops_debug_ = False
-        assert ops[0].ty == "MxV", "First operation should be on the crossbar (MxV)"
+        assert (
+            ops[0].ty == "MxV"
+        ), "First operation should be on the crossbar (MxV)"
 
         # Each operation has a predefined number of inputs, but can have an
         # arbitrary number of outputs, where results are copied. Some outputs,
@@ -644,7 +753,10 @@ class Core:
         for op in ops:
             if op.ty == "MxV":
                 if len(op.accesses["RD"]) != 1:
-                    raise ValueError("MxV: expecting 1 read argument (got %d)." % (len(op.accesses['RD'], )))
+                    raise ValueError(
+                        "MxV: expecting 1 read argument (got %d)."
+                        % (len(op.accesses["RD"],))
+                    )
                 (rd_objstr, rd_is) = next(iter(op.accesses["RD"].items()))
                 if execute_ops_debug_:
                     print("    MxV: RD obj=%s is=%s" % (rd_objstr, rd_is))
@@ -655,9 +767,12 @@ class Core:
                     if execute_ops_debug_:
                         print("    MxV: WR obj=%s is=%s" % (wr_objstr, wr_is))
                     self.handle_op_output(wr_objstr, results, wr_is, y)
-            elif  op.ty == "ADD":
+            elif op.ty == "ADD":
                 if len(op.accesses["RD"]) != 2:
-                    raise ValueError("ADD: expecting 2 read arguments (got %d)." % (len(op.accesses['RD'], )))
+                    raise ValueError(
+                        "ADD: expecting 2 read arguments (got %d)."
+                        % (len(op.accesses["RD"],))
+                    )
                 rd_accesses = list(op.accesses["RD"].items())
 
                 (rd_objstr1, rd_is1) = rd_accesses[0]
@@ -676,8 +791,14 @@ class Core:
                 x2 = self.read_object(rd_objstr2, rd_is2, unpad_oi=obj2_oi)
 
                 if execute_ops_debug_:
-                    print("    ADD: RD1 obj=%s is=%s vs=%s" % (rd_objstr1, rd_is1, x1))
-                    print("    ADD: RD2 obj=%s is=%s vs=%s" % (rd_objstr2, rd_is2, x2))
+                    print(
+                        "    ADD: RD1 obj=%s is=%s vs=%s"
+                        % (rd_objstr1, rd_is1, x1)
+                    )
+                    print(
+                        "    ADD: RD2 obj=%s is=%s vs=%s"
+                        % (rd_objstr2, rd_is2, x2)
+                    )
                 y = np.add(x1, x2)
                 for (wr_objstr, wr_is) in op.accesses["WR"].items():
                     if execute_ops_debug_:
@@ -687,7 +808,6 @@ class Core:
                 raise ValueError("Unknown operation: %s" % (op.ty,))
 
         return results
-
 
     def write_obj(self, objname: str, w_idx, w_val):
         try:
@@ -699,12 +819,14 @@ class Core:
     def validate_write(self, objname: str, w_idx):
         _ = self.objs[objname][w_idx]
 
+
 class Object:
     """ Object information """
-    name: str # name of the object
+
+    name: str  # name of the object
     info: ObjectInfo
-    reader: typing.Optional[str] # name of reader stage
-    writer: typing.Optional[str] # name of writer stage
+    reader: typing.Optional[str]  # name of reader stage
+    writer: typing.Optional[str]  # name of writer stage
 
     def __repr__(self):
         return "Object(%s, info=%s)" % (self.name, self.info)
@@ -725,32 +847,41 @@ class Object:
     def set_reader(self, stagename: str):
         """ set reader: we only allow one reader per object """
         if self.reader is not None:
-            raise TypeError("failed to set stage %s as reader of object %s because there is already a reader set (stage %s) " % (stagename, self.name, self.reader))
+            raise TypeError(
+                "failed to set stage %s as reader of object %s because there is already a reader set (stage %s) "
+                % (stagename, self.name, self.reader)
+            )
         self.reader = stagename
 
     def set_writer(self, stagename: str):
         """ set writer: we only allow one writer per object """
         if self.writer is not None:
-            raise TypeError("failed to set stage %s as writer of object %s because there is already a writer set (stage %s) " % (stagename, self.name, self.writer))
+            raise TypeError(
+                "failed to set stage %s as writer of object %s because there is already a writer set (stage %s) "
+                % (stagename, self.name, self.writer)
+            )
         self.writer = stagename
 
     def is_internal(self) -> bool:
         return (self.reader is not None) and (self.reader == self.writer)
 
+
 class Pipeline:
     """ Pipeline """
 
-    p_objs: typing.Dict[str, Object] # object name -> Object
+    p_objs: typing.Dict[str, Object]  # object name -> Object
     p_stages: typing.Dict[str, Stage]  # stage name -> Stage
 
     # Orphan objects are objects without a reader, and they are kept here
     orphan_objs: typing.Dict[str, np.ndarray]
 
-    def __init__(self,
-                 stages: typing.List[Stage],
-                 objs_info: typing.Dict[str, ObjectInfo],
-                 execute_ops: bool = False,
-                 loop_inp_limit: typing.Optional[int] = None):
+    def __init__(
+        self,
+        stages: typing.List[Stage],
+        objs_info: typing.Dict[str, ObjectInfo],
+        execute_ops: bool = False,
+        loop_inp_limit: typing.Optional[int] = None,
+    ):
         """ Initialize a Pipeline
 
         stages: stages of the pipeline.
@@ -764,7 +895,9 @@ class Pipeline:
         # Initialize p_stages, and attach stages to the pipeline
         self.p_stages = dict(((s.get_name(), s) for s in stages))
         if len(self.p_stages) != len(stages):
-            raise ValueError("stages do not have unique names:\n%s" % (pp.pformat(stages)))
+            raise ValueError(
+                "stages do not have unique names:\n%s" % (pp.pformat(stages))
+            )
         for st in stages:
             st.attach_to_pipeline(self.handle_write, execute_ops)
 
@@ -773,19 +906,28 @@ class Pipeline:
         for st in stages:
             for ro_objname in st.get_ro_objnames():
                 if ro_objname not in self.p_objs:
-                    raise ValueError("Object %s read by stage %s, but not provided in initialization" % (ro_objname, st.get_name()))
+                    raise ValueError(
+                        "Object %s read by stage %s, but not provided in initialization"
+                        % (ro_objname, st.get_name())
+                    )
                 obj = self.p_objs[ro_objname]
                 obj.set_reader(st.get_name())
 
             for wo_objname in st.get_wo_objnames():
                 if wo_objname not in self.p_objs:
-                    raise ValueError("Object %s written by stage %s, but not provided in initialization" % (wo_objname, st.get_name()))
+                    raise ValueError(
+                        "Object %s written by stage %s, but not provided in initialization"
+                        % (wo_objname, st.get_name())
+                    )
                 obj = self.p_objs[wo_objname]
                 obj.set_writer(st.get_name())
 
             for rw_objname in st.get_rw_objnames():
                 if rw_objname not in self.p_objs:
-                    raise ValueError("Object %s is internal to stage %s, but not provided in initialization" % (rw_objname, st.get_name()))
+                    raise ValueError(
+                        "Object %s is internal to stage %s, but not provided in initialization"
+                        % (rw_objname, st.get_name())
+                    )
                 obj = self.p_objs[rw_objname]
                 obj.set_reader(st.get_name())
                 obj.set_writer(st.get_name())
@@ -802,22 +944,34 @@ class Pipeline:
                 reader_stage = self.p_stages[obj.reader]
                 reader_stage.core.alloc_object(obj.name, obj.info)
                 if obj.writer is None:
-                    print("Object %s read by %s has no writer. Assuming it always exists." % (obj.name, obj.reader))
+                    print(
+                        "Object %s read by %s has no writer. Assuming it always exists."
+                        % (obj.name, obj.reader)
+                    )
                     reader_stage.set_dont_wait_for_reads(obj.name)
                 else:
-                    print("Object %s written by %s and read by %s" % (obj, obj.writer, obj.reader))
+                    print(
+                        "Object %s written by %s and read by %s"
+                        % (obj, obj.writer, obj.reader)
+                    )
                     writer_stage = self.p_stages[obj.writer]
                     rd_a = reader_stage.si.get_obj_rd_rel(obj.name)
                     wr_a = writer_stage.si.get_obj_wr_rel(obj.name)
                     loc_to_max_iter = isl_rel_loc_to_max_iter(wr_a, rd_a)
-                    reader_stage.set_isl_rel_loc_to_max_iter(obj.name, loc_to_max_iter)
+                    reader_stage.set_isl_rel_loc_to_max_iter(
+                        obj.name, loc_to_max_iter
+                    )
 
             elif obj.writer is not None:
-                print("Object %s is orphan: written by %s, but has no readers" % (obj.name, obj.writer))
-                self.orphan_objs[obj.name] = np.zeros(obj.info.get_padded_shape())
+                print(
+                    "Object %s is orphan: written by %s, but has no readers"
+                    % (obj.name, obj.writer)
+                )
+                self.orphan_objs[obj.name] = np.zeros(
+                    obj.info.get_padded_shape()
+                )
             else:
                 print("WARNING: object %s is not read or written" % (obj.name,))
-
 
         # Now that we've set loc_to_max_iter, build the python module
         for st in stages:
@@ -825,7 +979,9 @@ class Pipeline:
 
         self.loop_inp_limit = loop_inp_limit
         # Start the generators for every stage
-        self.stage_ticks = dict(((s, s.tick_gen(self.loop_inp_limit)) for s in stages))
+        self.stage_ticks = dict(
+            ((s, s.tick_gen(self.loop_inp_limit)) for s in stages)
+        )
         self.nticks = 0
 
         self.stages = stages
@@ -854,7 +1010,9 @@ class Pipeline:
                 # if wr_val exsits, and this is an orphan object, update value
                 wr_obj = self.orphan_objs[wr_objstr]
                 try:
-                    assert isinstance(wr_idx, tuple) and len(wr_obj.shape) == len(wr_idx)
+                    assert isinstance(wr_idx, tuple) and len(
+                        wr_obj.shape
+                    ) == len(wr_idx)
                 except:
                     print("wr_idx:", wr_idx)
                     print("wr_obj.shape", wr_obj.shape)
@@ -891,7 +1049,7 @@ class Pipeline:
             t = self.stage_ticks[s]
             try:
                 it = next(t)
-                #print("Stage: %s executed iteration %s" % (s.get_name(), it))
+                # print("Stage: %s executed iteration %s" % (s.get_name(), it))
             except StopIteration:
                 # stage done (typically, because we set a limit)
                 print("****** Stage %s done!" % (s.get_name(),))
@@ -903,7 +1061,7 @@ class Pipeline:
         print("***** All stages ticked. Flushing writes.")
         self.flush_writes()
         self.nticks += 1
-        print("="*80)
+        print("=" * 80)
         return ret
 
     def tick_gen(self):

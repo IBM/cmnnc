@@ -8,11 +8,13 @@
 import ast as pyast
 
 import islpy as isl
+
 # import ast as pyast
 # import astor as pyastor
 # from astpp import parseprint, dump as astpp_dump
 
 ## ISL Helpers
+
 
 def fix_params(x, vals):
     """ Fix the value of the parameters in @x according to the @vals dict.
@@ -29,6 +31,7 @@ def fix_params(x, vals):
         # ret = ret.add_constraint(isl.Constraint.eq_from_names(ret.space, {vp: 1, 1: vv}))
     return ret
 
+
 def str_to_isl_map(x: str) -> isl.Map:
     try:
         return isl.Map(x)
@@ -40,12 +43,17 @@ def str_to_isl_map(x: str) -> isl.Map:
 def dict_from_map(isl_map, p_key, p_val):
     """ Create a dictionary from an ISL map. """
     ret = {}
+
     def add_dep(p):
         p_var_dict = p.get_var_dict()
         if p_key not in p_var_dict:
-            raise ValueError("p_key='%s' not in %s" % (p_key, ','.join(p_var_dict.keys())))
+            raise ValueError(
+                "p_key='%s' not in %s" % (p_key, ",".join(p_var_dict.keys()))
+            )
         if p_val not in p_var_dict:
-            raise ValueError("p_val='%s' not in %s" % (p_key, ','.join(p_var_dict.keys())))
+            raise ValueError(
+                "p_val='%s' not in %s" % (p_key, ",".join(p_var_dict.keys()))
+            )
 
         k = p.get_coordinate_val(*p_var_dict[p_key]).to_python()
         v = p.get_coordinate_val(*p_var_dict[p_val]).to_python()
@@ -55,6 +63,7 @@ def dict_from_map(isl_map, p_key, p_val):
 
     isl_map.wrap().foreach_point(add_dep)
     return ret
+
 
 def isl_rel_loc_to_max_iter(s1_wr_a, s2_rd_a):
     """
@@ -123,11 +132,11 @@ def isl_rel_loc_to_max_iter(s1_wr_a, s2_rd_a):
     # multiple iterations. Hence, the final lexmax
     ret = ret.lexmax()
 
-
     return ret
 
 
 ### Code generation
+
 
 def print_ast(ast):
     global ast_node
@@ -136,6 +145,7 @@ def print_ast(ast):
     p.flush()
     p = p.print_ast_node(ast)
     print(p.get_str())
+
 
 def isl_set_to_ast(isl_s):
     """ ISL set to an AST """
@@ -158,15 +168,18 @@ def isl_set_to_ast(isl_s):
     try:
         ast = bld.ast_from_schedule(sched)
     except:
-        print("Failed to build ISL AST for ISL map %s"  % (isl_s,))
+        print("Failed to build ISL AST for ISL map %s" % (isl_s,))
         raise
     return ast
+
 
 def isl_map_to_ast(isl_m):
     """ ISL map to an AST """
     return isl_set_to_ast(isl_m.wrap())
 
+
 ## Python Code generation
+
 
 def isl2py_exp(e):
     ty = e.get_type()  # returns isl_ast_expr_type
@@ -184,7 +197,9 @@ def isl2py_exp(e):
         elif op_ty == isl.ast_expr_op_type.le:
             op0 = isl2py_exp(e.get_op_arg(0))
             op1 = isl2py_exp(e.get_op_arg(1))
-            expr = pyast.Compare(left=op0, ops=[pyast.LtE(),], comparators=[op1])
+            expr = pyast.Compare(
+                left=op0, ops=[pyast.LtE(),], comparators=[op1]
+            )
             return expr
 
         # LESS
@@ -205,7 +220,9 @@ def isl2py_exp(e):
         elif op_ty == isl.ast_expr_op_type.ge:
             op0 = isl2py_exp(e.get_op_arg(0))
             op1 = isl2py_exp(e.get_op_arg(1))
-            expr = pyast.Compare(left=op0, ops=[pyast.GtE(),], comparators=[op1])
+            expr = pyast.Compare(
+                left=op0, ops=[pyast.GtE(),], comparators=[op1]
+            )
             return expr
 
         # Minus
@@ -237,25 +254,25 @@ def isl2py_exp(e):
 
         # MAX
         elif op_ty == isl.ast_expr_op_type.max:
-            #NB: Not sure if max can actually have more than one args.
+            # NB: Not sure if max can actually have more than one args.
             nargs = e.get_op_n_arg()
-            args = [ isl2py_exp(e.get_op_arg(i)) for i in range(nargs) ]
+            args = [isl2py_exp(e.get_op_arg(i)) for i in range(nargs)]
             expr = pyast.Call(
-                func=pyast.Name(id='max', ctx=pyast.Load()),
-                args = args,
-                keywords = [],
+                func=pyast.Name(id="max", ctx=pyast.Load()),
+                args=args,
+                keywords=[],
             )
             return expr
 
         # MIN
         elif op_ty == isl.ast_expr_op_type.min:
-            #NB: Not sure if max can actually have more than one args.
+            # NB: Not sure if max can actually have more than one args.
             nargs = e.get_op_n_arg()
-            args = [ isl2py_exp(e.get_op_arg(i)) for i in range(nargs) ]
+            args = [isl2py_exp(e.get_op_arg(i)) for i in range(nargs)]
             expr = pyast.Call(
-                func=pyast.Name(id='min', ctx=pyast.Load()),
-                args = args,
-                keywords = [],
+                func=pyast.Name(id="min", ctx=pyast.Load()),
+                args=args,
+                keywords=[],
             )
             return expr
 
@@ -264,7 +281,7 @@ def isl2py_exp(e):
     # ID
     elif ty == isl.ast_expr_type.id:
         name = e.get_id().name
-        if name == '':
+        if name == "":
             return pyast.NameConstant(None)
         else:
             return pyast.Name(name, pyast.Load())
@@ -274,25 +291,27 @@ def isl2py_exp(e):
         return pyast.Num(val)
     elif ty == isl.ast_expr_type.error:
         raise NotImplementedError
-    else: raise AssertionError("uknown ISL expr type: %d" % (ty,))
+    else:
+        raise AssertionError("uknown ISL expr type: %d" % (ty,))
+
 
 def isl2py_for(n):
-    assert(n.get_type() == isl.ast_node_type.for_)
+    assert n.get_type() == isl.ast_node_type.for_
     for_var = n.for_get_iterator()
-    assert(for_var.get_type() == isl.ast_expr_type.id)
+    assert for_var.get_type() == isl.ast_expr_type.id
     for_var_name = for_var.get_id().name
 
     # Initialize loop variable
     py_asign = pyast.Assign(
-        targets = [pyast.Name(for_var_name, pyast.Store())],
-        value   = isl2py_exp(n.for_get_init())
+        targets=[pyast.Name(for_var_name, pyast.Store())],
+        value=isl2py_exp(n.for_get_init()),
     )
 
     # Increment statement
     py_inc = pyast.AugAssign(
-        target = pyast.Name(for_var_name, pyast.Store()),
-        op = pyast.Add(),
-        value = isl2py_exp(n.for_get_inc())
+        target=pyast.Name(for_var_name, pyast.Store()),
+        op=pyast.Add(),
+        value=isl2py_exp(n.for_get_inc()),
     )
 
     # python loop body
@@ -300,32 +319,29 @@ def isl2py_for(n):
 
     ret = [
         py_asign,
-        pyast.While(
-            test=isl2py_exp(n.for_get_cond()),
-            body= py_body,
-            orelse = []
-        )
+        pyast.While(test=isl2py_exp(n.for_get_cond()), body=py_body, orelse=[]),
     ]
 
     return ret
 
+
 ## This should return a list, i.e., a "body"
 def isl2py_ast(n):
-     """ Transform a ISL AST node to a list of Python AST nodes (body) """
-     isl_nty = n.get_type()
-     if isl_nty == isl.ast_node_type.for_:
+    """ Transform a ISL AST node to a list of Python AST nodes (body) """
+    isl_nty = n.get_type()
+    if isl_nty == isl.ast_node_type.for_:
         return isl2py_for(n)
 
-     elif isl_nty == isl.ast_node_type.if_:
+    elif isl_nty == isl.ast_node_type.if_:
         return [
             pyast.If(
-                test =   isl2py_exp(n.if_get_cond()),
-                body =   isl2py_ast(n.if_get_then()),
-                orelse = isl2py_ast(n.if_get_else()) if n.if_has_else() else []
+                test=isl2py_exp(n.if_get_cond()),
+                body=isl2py_ast(n.if_get_then()),
+                orelse=isl2py_ast(n.if_get_else()) if n.if_has_else() else [],
             )
         ]
 
-     elif isl_nty == isl.ast_node_type.block:
+    elif isl_nty == isl.ast_node_type.block:
         nlist = n.block_get_children()
         nr_nodes = nlist.n_ast_node()
         ret = []
@@ -333,26 +349,50 @@ def isl2py_ast(n):
             ret.extend(isl2py_ast(nlist.get_ast_node(i)))
         return ret
         raise NotImplementedError
-     elif isl_nty == isl.ast_node_type.mark:
+    elif isl_nty == isl.ast_node_type.mark:
         raise NotImplementedError
-     elif isl_nty == isl.ast_node_type.user:
+    elif isl_nty == isl.ast_node_type.user:
         e = n.user_get_expr()
-        if e.get_type() == isl.ast_expr_type.op and e.get_op_type() == isl.ast_expr_op_type.call:
+        if (
+            e.get_type() == isl.ast_expr_type.op
+            and e.get_op_type() == isl.ast_expr_op_type.call
+        ):
             # Replace call with a yield with the call arguments
             # I guess the first arg is the "function"
             nargs = e.get_op_n_arg()
             return [
                 # NB: Ignore the first argument (for now)
-                pyast.Expr(pyast.Yield(pyast.Tuple(
-                    [ isl2py_exp(e.get_op_arg(i + 1)) for i in range(nargs-1) ],
-                    pyast.Load()
-                )))
+                pyast.Expr(
+                    pyast.Yield(
+                        pyast.Tuple(
+                            [
+                                isl2py_exp(e.get_op_arg(i + 1))
+                                for i in range(nargs - 1)
+                            ],
+                            pyast.Load(),
+                        )
+                    )
+                )
             ]
         raise NotImplementedError
-     elif isl_nty == isl.ast_node_type.error:
+    elif isl_nty == isl.ast_node_type.error:
         raise NotImplementedError
-     else: raise AssertionError("uknown ISL node type: %d" % (isl_nty,))
+    else:
+        raise AssertionError("uknown ISL node type: %d" % (isl_nty,))
+
 
 def isl2py_fn(node, fn_name):
     """ Transform an ISL AST node to a Python AST function"""
-    return pyast.FunctionDef(name=fn_name, args=pyast.arguments(args=[], defaults=[], vararg=None, kwonlyargs=[], kwarg=None, kw_defaults=[]), body=isl2py_ast(node), decorator_list=[])
+    return pyast.FunctionDef(
+        name=fn_name,
+        args=pyast.arguments(
+            args=[],
+            defaults=[],
+            vararg=None,
+            kwonlyargs=[],
+            kwarg=None,
+            kw_defaults=[],
+        ),
+        body=isl2py_ast(node),
+        decorator_list=[],
+    )

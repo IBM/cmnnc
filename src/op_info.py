@@ -13,6 +13,7 @@ import pipeline as pl
 
 """ Polyhedral information for operations """
 
+
 @dc.dataclass(init=False)
 class IslAccess:
     """ Wrapper for an isl access mapping: instance space -> object space
@@ -21,12 +22,14 @@ class IslAccess:
     second is the object (see get_{stage,obj}_name).
     """
 
-    a_ty: str         # RD or WR
-    access: isl.Map   # instance space -> object space
+    a_ty: str  # RD or WR
+    access: isl.Map  # instance space -> object space
 
     def __init__(self, ty: str, acc: typing.Union[str, isl.Map]):
         if ty not in ("RD", "WR"):
-            raise ValueError("Invalid access type: %s. Expecting 'RD' or 'WR'" % (ty,))
+            raise ValueError(
+                "Invalid access type: %s. Expecting 'RD' or 'WR'" % (ty,)
+            )
 
         if isinstance(acc, str):
             try:
@@ -36,18 +39,21 @@ class IslAccess:
                 raise
 
         if not isinstance(acc, isl.Map):
-            raise ValueError("Invalid access type: %s. Expecting str or isl.Map" % (type(acc),))
+            raise ValueError(
+                "Invalid access type: %s. Expecting str or isl.Map"
+                % (type(acc),)
+            )
 
         self.a_ty = ty
         self.access = acc
 
     @staticmethod
-    def RD(acc: typing.Union[str, isl.Map]) -> 'IslAccess':
+    def RD(acc: typing.Union[str, isl.Map]) -> "IslAccess":
         """ Read ISL access """
         return IslAccess("RD", acc)
 
     @staticmethod
-    def WR(acc: typing.Union[str, isl.Map]) -> 'IslAccess':
+    def WR(acc: typing.Union[str, isl.Map]) -> "IslAccess":
         """ Write ISL access """
         return IslAccess("WR", acc)
 
@@ -74,6 +80,7 @@ class OpInfo:
     Alternatively, we could use a single isl.UnionMap, but the latter seems
     more complicated.
     """
+
     op_ty: str
     accesses: typing.List[IslAccess]
 
@@ -130,62 +137,73 @@ class OpInfo:
 RD_a = IslAccess.RD
 WR_a = IslAccess.WR
 
-def OpInfo_CONV(conv_ps: conv.Conv2DParams, s_id:str, vin_id: str, vout_id: str) -> OpInfo:
+
+def OpInfo_CONV(
+    conv_ps: conv.Conv2DParams, s_id: str, vin_id: str, vout_id: str
+) -> OpInfo:
     """ OpInfo for a CONV operation """
 
-    rd_a = \
-        "{{ {SID}[oh,ow] -> {VID}[id,ih,iw] " \
-        ":    0   <= oh < {OH} " \
-        "and  0   <= ow < {OW} " \
-        "and  0   <= id < {ID} " \
-        "and  oh  <= ih < oh + {FH} "\
-        "and  ow  <= iw < ow + {FW} "\
-        "}}" \
-        .format(
+    rd_a = (
+        "{{ {SID}[oh,ow] -> {VID}[id,ih,iw] "
+        ":    0   <= oh < {OH} "
+        "and  0   <= ow < {OW} "
+        "and  0   <= id < {ID} "
+        "and  oh  <= ih < oh + {FH} "
+        "and  ow  <= iw < ow + {FW} "
+        "}}".format(
             ID=conv_ps.i.d,
-            OH=conv_ps.o.h, OW=conv_ps.o.w,
-            FH=conv_ps.f.h, FW=conv_ps.f.w,
-            SID=s_id, VID=vin_id
+            OH=conv_ps.o.h,
+            OW=conv_ps.o.w,
+            FH=conv_ps.f.h,
+            FW=conv_ps.f.w,
+            SID=s_id,
+            VID=vin_id,
         )
+    )
 
-    wr_a = \
-        "{{ {SID}[oh,ow] -> {VID}[ik,ih,iw] " \
-        ":    0   <= oh < {OH} " \
-        "and  0   <= ow < {OW} " \
-        "and  0   <= ik < {FL} " \
-        "and  ih = oh + {P} " \
-        "and  iw = ow + {P} " \
-        "}}" \
-        .format(
-            OH=conv_ps.o.h, OW=conv_ps.o.w,
+    wr_a = (
+        "{{ {SID}[oh,ow] -> {VID}[ik,ih,iw] "
+        ":    0   <= oh < {OH} "
+        "and  0   <= ow < {OW} "
+        "and  0   <= ik < {FL} "
+        "and  ih = oh + {P} "
+        "and  iw = ow + {P} "
+        "}}".format(
+            OH=conv_ps.o.h,
+            OW=conv_ps.o.w,
             FL=conv_ps.f.l,
             P=conv_ps.p_out,
-            SID=s_id, VID=vout_id
+            SID=s_id,
+            VID=vout_id,
         )
+    )
 
     return pl.OpInfo("MxV", [RD_a(rd_a), WR_a(wr_a)])
 
 
-def OpInfo_ADD(conv_domain: isl.Map,
-               shape: typing.Tuple[int,...],
-               in1_id: str,
-               in2_id: str,
-               out_id: str) -> OpInfo:
+def OpInfo_ADD(
+    conv_domain: isl.Map,
+    shape: typing.Tuple[int, ...],
+    in1_id: str,
+    in2_id: str,
+    out_id: str,
+) -> OpInfo:
     """ OpInfo for an ADD operation """
 
-    (b,d,h,w) = shape
-    assert b == 1 # Batch is expected to be 1
+    (b, d, h, w) = shape
+    assert b == 1  # Batch is expected to be 1
 
     if True:
         # Reconstruct the domain from shape and verify that everyting is in order
         tn = conv_domain.get_tuple_name()
-        xdom_s = (isl.Space.create_from_names(isl.DEFAULT_CONTEXT, set=["oh", "ow"])
-                            .set_tuple_name(isl.dim_type.set, tn))
+        xdom_s = isl.Space.create_from_names(
+            isl.DEFAULT_CONTEXT, set=["oh", "ow"]
+        ).set_tuple_name(isl.dim_type.set, tn)
         xdom = isl.Set.universe(xdom_s)
-        xineqs = [ # loop bounds, based on shape
-            {1: w-1, "ow": -1},
+        xineqs = [  # loop bounds, based on shape
+            {1: w - 1, "ow": -1},
             {1: 0, "ow": 1},
-            {1: h-1, "oh": -1},
+            {1: h - 1, "oh": -1},
             {1: 0, "oh": 1},
         ]
         for xineq in xineqs:
@@ -199,8 +217,9 @@ def OpInfo_ADD(conv_domain: isl.Map,
     for (obj_id, mk_acc) in ((in1_id, RD_a), (in2_id, RD_a), (out_id, WR_a)):
         # compute range
         obj_vs = ["%s_%s" % (obj_id, x) for x in ("d", "h", "w")]
-        rng_s = (isl.Space.create_from_names(isl.DEFAULT_CONTEXT, set=obj_vs)
-                          .set_tuple_name(isl.dim_type.set, obj_id))
+        rng_s = isl.Space.create_from_names(
+            isl.DEFAULT_CONTEXT, set=obj_vs
+        ).set_tuple_name(isl.dim_type.set, obj_id)
         rng = isl.Set.universe(rng_s)
         rel = isl.Map.from_domain_and_range(conv_domain, rng)
 
@@ -214,7 +233,7 @@ def OpInfo_ADD(conv_domain: isl.Map,
             rel = rel.add_constraint(con_eq)
         # d dimension
         ineqs = [
-            {1: d-1, obj_vs[0]: -1},
+            {1: d - 1, obj_vs[0]: -1},
             {1: 0, obj_vs[0]: 1},
         ]
         for ineq in ineqs:

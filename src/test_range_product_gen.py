@@ -36,7 +36,7 @@ from pipeline import isl_map_to_pyfn
 r1 = isl.Map("{ S[i] -> x[j]: 0 <= i < 1 and i <= j < i + 2}")
 w1 = isl.Map("{ S[i] -> y[j]: 0 <= i < 1 and i <= j < i + 2}")
 
-assert(r1.domain() == w1.domain())
+assert r1.domain() == w1.domain()
 prod = r1.range_product(w1)
 print(prod)
 body = []

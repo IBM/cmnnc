@@ -43,18 +43,20 @@ def test_onnx_residual_2d():
     conv2_padding = 1
 
     conv1_ps = conv.Conv2DParams(
-        i = conv.Conv2DInParams(w=32, h=32, d=3),
-        f = conv.Conv2DFiltParams(w=3, h=3, d=3, l=1),
-        p = conv1_padding,
-        p_out = conv2_padding,
-        s = 1)
+        i=conv.Conv2DInParams(w=32, h=32, d=3),
+        f=conv.Conv2DFiltParams(w=3, h=3, d=3, l=1),
+        p=conv1_padding,
+        p_out=conv2_padding,
+        s=1,
+    )
 
     conv2_ps = conv.Conv2DParams(
-        i = conv1_ps.o.to_in(),
-        f = conv.Conv2DFiltParams(w=3, h=3, d=conv1_ps.f.l, l=1),
-        p = conv2_padding,
-        p_out = 0,
-        s = 1)
+        i=conv1_ps.o.to_in(),
+        f=conv.Conv2DFiltParams(w=3, h=3, d=conv1_ps.f.l, l=1),
+        p=conv2_padding,
+        p_out=0,
+        s=1,
+    )
 
     onnx_m = onnx_mk_simple_residual(conv1_ps, conv2_ps)
 
@@ -72,14 +74,16 @@ def test_onnx_residual_2d():
         cconf = graph.get_core_conf(pid)
         cconfs.append(cconf)
 
-    pline = pl.Pipeline(stages, graph.objs_info, execute_ops = True, loop_inp_limit=1)
+    pline = pl.Pipeline(
+        stages, graph.objs_info, execute_ops=True, loop_inp_limit=1
+    )
     pline.configure(cconfs)
 
     # set inputs
     inp = onnx_rand_input(onnx_m)
     for (inp_name, inp_data) in inp.items():
         obj_info = graph.objs_info[inp_name]
-        assert inp_data.shape == (1,) + obj_info.shape # NB: batching
+        assert inp_data.shape == (1,) + obj_info.shape  # NB: batching
         # data = np.random.rand(*obj_info.shape)
         data = inp_data[0]
         data = np.pad(data, obj_info.padding)
@@ -90,39 +94,50 @@ def test_onnx_residual_2d():
     print_info = False
     for iters in pline.tick_gen():
         if print_info:
-            print("*"*80)
-        for (s,i) in iters.items():
+            print("*" * 80)
+        for (s, i) in iters.items():
             if print_info:
                 print("%s: %s" % (s, i))
         if print_info:
-            print("*"*80)
-    print("%s> DONE" % ("-"*30,))
+            print("*" * 80)
+    print("%s> DONE" % ("-" * 30,))
 
     # Get pipeline results
-    pline_out = pline.get_object('out')
-    pline_v1 = pline.get_object('v1')
-    pline_v2 = pline.get_object('v2')
+    pline_out = pline.get_object("out")
+    pline_v1 = pline.get_object("v1")
+    pline_v2 = pline.get_object("v2")
 
     # Execute using onnxruntime
-    onnx.save(onnx_m, 'simple_residual_2d.onnx')
-    sess = onnxrt.InferenceSession('simple_residual_2d.onnx')
+    onnx.save(onnx_m, "simple_residual_2d.onnx")
+    sess = onnxrt.InferenceSession("simple_residual_2d.onnx")
     out = sess.run(None, inp)
 
     # Execute using manual ops
-    in_m = np.pad(inp['in'][0], graph.objs_info['in'].padding)
-    w1_m = np.array(graph.init_tvs["w1"].float_data).reshape(conv1_ps.get_filters_shape())
+    in_m = np.pad(inp["in"][0], graph.objs_info["in"].padding)
+    w1_m = np.array(graph.init_tvs["w1"].float_data).reshape(
+        conv1_ps.get_filters_shape()
+    )
     v1_m = conv.conv2d_simple(in_m, w1_m, conv1_ps)
-    v1_m = np.pad(v1_m, graph.objs_info['v1'].padding)
-    np.testing.assert_allclose(v1_m, pline_v1, err_msg="pipeline v1 does not match manual v1")
+    v1_m = np.pad(v1_m, graph.objs_info["v1"].padding)
+    np.testing.assert_allclose(
+        v1_m, pline_v1, err_msg="pipeline v1 does not match manual v1"
+    )
 
-    w2_m = np.array(graph.init_tvs["w2"].float_data).reshape(conv2_ps.get_filters_shape())
+    w2_m = np.array(graph.init_tvs["w2"].float_data).reshape(
+        conv2_ps.get_filters_shape()
+    )
     v2_m = conv.conv2d_simple(v1_m, w2_m, conv2_ps)
-    v2_m = np.pad(v2_m, graph.objs_info['v2'].padding)
-    np.testing.assert_allclose(v2_m, pline_v2, err_msg="pipeline v2 does not match manual v2")
+    v2_m = np.pad(v2_m, graph.objs_info["v2"].padding)
+    np.testing.assert_allclose(
+        v2_m, pline_v2, err_msg="pipeline v2 does not match manual v2"
+    )
 
-    np.testing.assert_allclose(out[0][0,:], pline_out, err_msg="OUT does not match", rtol=1e-06)
+    np.testing.assert_allclose(
+        out[0][0, :], pline_out, err_msg="OUT does not match", rtol=1e-06
+    )
 
     return graph
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     ret = test_onnx_residual_2d()
