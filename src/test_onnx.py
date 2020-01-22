@@ -58,29 +58,23 @@ def test_onnx_residual_2d():
         s=1,
     )
 
+    # create simple model with residual path
     onnx_m = onnx_mk_simple_residual(conv1_ps, conv2_ps)
 
-    # Parse onnx graph to create a pipeline
+    # create random input
+    inp = onnx_rand_input(onnx_m)
+
+    # Execute using onnxruntime
+    onnx.save(onnx_m, "simple_residual_2d.onnx")
+    sess = onnxrt.InferenceSession("simple_residual_2d.onnx")
+    out = sess.run(None, inp)
+
+    # Parse onnx graph, and create a pipeline
     graph = OnnxGraph(onnx_m)
     pprint(graph.partitions)
-
-    vals = {}
-    stages = []
-    cconfs = []
-    for pid in range(len(graph.partitions)):
-        si = graph.get_stage_info(pid)
-        stage = pl.Stage(si, vals)
-        stages.append(stage)
-        cconf = graph.get_core_conf(pid)
-        cconfs.append(cconf)
-
-    pline = pl.Pipeline(
-        stages, graph.objs_info, execute_ops=True, loop_inp_limit=1
-    )
-    pline.configure(cconfs)
+    pline = graph.get_pipeline()
 
     # set inputs
-    inp = onnx_rand_input(onnx_m)
     for (inp_name, inp_data) in inp.items():
         obj_info = graph.objs_info[inp_name]
         assert inp_data.shape == (1,) + obj_info.shape  # NB: batching
@@ -89,6 +83,7 @@ def test_onnx_residual_2d():
         data = np.pad(data, obj_info.padding)
         obj = pline.get_object(inp_name)
         obj[...] = data
+
 
     # Execute the pipeline
     print_info = False
@@ -106,11 +101,6 @@ def test_onnx_residual_2d():
     pline_out = pline.get_object("out")
     pline_v1 = pline.get_object("v1")
     pline_v2 = pline.get_object("v2")
-
-    # Execute using onnxruntime
-    onnx.save(onnx_m, "simple_residual_2d.onnx")
-    sess = onnxrt.InferenceSession("simple_residual_2d.onnx")
-    out = sess.run(None, inp)
 
     # Execute using manual ops
     in_m = np.pad(inp["in"][0], graph.objs_info["in"].padding)

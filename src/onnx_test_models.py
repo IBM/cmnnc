@@ -186,14 +186,15 @@ def mk_simple_residual(
             "Expecting Conv2DParams, but got: %s" % (type(conv2_ps),)
         )
 
+    batch_size = 1
     # Tensor types
     tensor_tys = {
         # NB: "[1] +" adds a batch size, which is needed for the convolution operator
-        "in": TensorTy(shape=[1] + list(conv1_ps.get_input_shape())),
+        "in": TensorTy(shape=[batch_size] + list(conv1_ps.get_input_shape())),
         "w1": TensorTy(shape=conv1_ps.get_filters_shape()),
-        "v1": TensorTy(shape=[1] + list(conv1_ps.get_output_shape())),
+        "v1": TensorTy(shape=[batch_size] + list(conv1_ps.get_output_shape())),
         "w2": TensorTy(shape=conv2_ps.get_filters_shape()),
-        "v2": TensorTy(shape=[1] + list(conv2_ps.get_input_shape())),
+        "v2": TensorTy(shape=[batch_size] + list(conv2_ps.get_input_shape())),
     }
     assert tensor_tys["v1"].shape == tensor_tys["v2"].shape
     tensor_tys["out"] = TensorTy(shape=tensor_tys["v2"].shape)
@@ -234,10 +235,7 @@ def mk_simple_residual(
 
     # Tensor initlializer values
     tensor_init_vs = {}
-    for n in (
-        "w1",
-        "w2",
-    ):
+    for n in ("w1","w2",):
         tty = tensor_tys[n]
         elem_type = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[tty.dty]
         vals = np.random.random(tty.shape).astype(elem_type)

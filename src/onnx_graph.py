@@ -23,14 +23,24 @@ from onnx_util import (
 )
 
 
-def get_obj_shapes_nobatch(g):
-    """ Get object shapes for a graph, but ignore batch parameter """
+def onnx_obj_shapes_reduce_batch(
+    g: onnx.GraphProto
+) -> typing.Tuple[typing.Dict[str, typing.Tuple[int,...]], int]:
+    """ Return shapes without the batch size, and batch size seperately
+
+    Assumes that all shapes have the same batch size, as the first dimension of
+    their shape.
+    """
     obj_shapes = onnx_get_obj_shapes(g)
+    batch_size = None
     for objname in obj_shapes:
         shape = obj_shapes[objname]
-        assert shape[0] == 1  # batch size
+        # check that all the objects have the same batch size
+        if batch_size is None:
+            batch_size = shape[0]
+        else: assert batch_size == shape[0]
         obj_shapes[objname] = shape[1:]
-    return obj_shapes
+    return (obj_shapes, batch_size)
 
 
 @dc.dataclass(init=False)
@@ -63,6 +73,7 @@ class OnnxGraph:
     partitions: typing.List[Partition]
 
     objs_info: typing.Dict[str, pl.ObjectInfo]
+    batch_size: int
 
     # dicts for easy lookip
     # Value info for graph input, output, and intermediate valudes
@@ -89,10 +100,11 @@ class OnnxGraph:
         self.inter_vis = dict((e.name, e) for e in self.g.value_info)
         self.init_tvs = dict((v.name, v) for v in self.g.initializer)
 
+        (obj_shapes, batch_size) = onnx_obj_shapes_reduce_batch(self.g)
         self.objs_info = dict(
-            (name, pl.ObjectInfo(shape))
-            for (name, shape) in get_obj_shapes_nobatch(self.g).items()
+            (name, pl.ObjectInfo(shape)) for (name, shape) in obj_shapes.items()
         )
+        self.batch_size = batch_size
 
         self.process_partitions()
 
@@ -293,3 +305,22 @@ class OnnxGraph:
 
     def get_core_conf(self, pid) -> pl.CoreConf:
         return self.partitions[pid].core_conf
+
+
+    def get_pipeline(self) -> pl.Pipeline:
+        """ Return a (configured) pipeline using this graph """
+        vals = {}
+        stages = []
+        cconfs = []
+        for pid in range(len(self.partitions)):
+            si = self.get_stage_info(pid)
+            stage = pl.Stage(si, vals)
+            stages.append(stage)
+            cconf = self.get_core_conf(pid)
+            cconfs.append(cconf)
+
+        pline = pl.Pipeline(
+            stages, self.objs_info, execute_ops=True, loop_inp_limit=1
+        )
+        pline.configure(cconfs)
+        return pline
