@@ -10,6 +10,7 @@ import islpy as isl
 
 import conv
 import pipeline as pl
+from isl_utils import isl_set_from_names
 
 """ Polyhedral information for operations """
 
@@ -196,10 +197,7 @@ def OpInfo_ADD(
     if True:
         # Reconstruct the domain from shape and verify that everyting is in order
         tn = conv_domain.get_tuple_name()
-        xdom_s = isl.Space.create_from_names(
-            isl.DEFAULT_CONTEXT, set=["oh", "ow"]
-        ).set_tuple_name(isl.dim_type.set, tn)
-        xdom = isl.Set.universe(xdom_s)
+        xdom = isl_set_from_names(tn, ["oh", "ow"])
         xineqs = [  # loop bounds, based on shape
             {1: w - 1, "ow": -1},
             {1: 0, "ow": 1},
@@ -217,10 +215,7 @@ def OpInfo_ADD(
     for (obj_id, mk_acc) in ((in1_id, RD_a), (in2_id, RD_a), (out_id, WR_a)):
         # compute range
         obj_vs = ["%s_%s" % (obj_id, x) for x in ("d", "h", "w")]
-        rng_s = isl.Space.create_from_names(
-            isl.DEFAULT_CONTEXT, set=obj_vs
-        ).set_tuple_name(isl.dim_type.set, obj_id)
-        rng = isl.Set.universe(rng_s)
+        rng = isl_set_from_names(obj_id, obj_vs)
         rel = isl.Map.from_domain_and_range(conv_domain, rng)
 
         # w,h dimensions

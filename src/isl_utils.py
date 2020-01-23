@@ -5,6 +5,7 @@
 # vim: set expandtab softtabstop=4 tabstop=4 shiftwidth=4:
 
 
+import typing
 import ast as pyast
 
 import islpy as isl
@@ -396,3 +397,15 @@ def isl2py_fn(node, fn_name):
         body=isl2py_ast(node),
         decorator_list=[],
     )
+
+
+def isl_set_from_names(
+    tname: str,
+    names: typing.List[str],
+    ctx = isl.DEFAULT_CONTEXT
+) -> isl.Set:
+    space = isl.Space.create_from_names(
+        ctx, set=names,
+    ).set_tuple_name(isl.dim_type.set, tname)
+    ret = isl.Set.universe(space)
+    return ret
