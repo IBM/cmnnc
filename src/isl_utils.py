@@ -68,8 +68,8 @@ def dict_from_map(isl_map, p_key, p_val):
 
 def isl_rel_loc_to_max_iter(s1_wr_a, s2_rd_a):
     """
-    Let's assume that we have two loops, one writes to an object, the other
-    reads from that object. Let's also assume that the first loop writes
+    Let's assume that we have two loops where one writes to an object and
+    another reads from that object. Let's also assume that the first loop writes
     locations to the object only once. The instance space of the first loop is
     S1, the second S2, and the index space of the object is O.
 

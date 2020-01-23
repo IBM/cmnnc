@@ -1,20 +1,20 @@
-- create a `CONV -> CONV` onnx graph
-   - execute it using onnxruntime, and verify that it produces the correct
+✓ create a `CONV -> CONV` onnx graph
+   ✓ execute it using onnxruntime, and verify that it produces the correct
      result
-   - execute it on the simulator, and verify that it produces the correct result
+   ✓ execute it on the simulator, and verify that it produces the correct result
 
-- create a
+✓ create a
 
 ```
-CONV ---> CONV ---> CONV  ---> ADD
-      |                    ^
-      |                    |
-      +--------------------+
+CONV ---> CONV ---> ADD
+      |              ^
+      |              |
+      +--------------+
 ```
 
 onnx graph
-   - execute it using onnxruntime
-   - execute it on the simulator
+   ✓ execute it using onnxruntime
+   ✓ execute it on the simulator
 
 # Steps
  ✓ move weights into initializer for generated onnx models
@@ -22,7 +22,7 @@ onnx graph
    corresponding failing test case
 
 # Issues
- - batching: CONV operator's first dimension is batch size
  ✓ multiple input nodes (residuals)
- - input/output (DMA)
+ - batching: CONV operator's first dimension is batch size
+ - GCU, input/output (DMA)
  - overwrite protection (WAR dependencies)

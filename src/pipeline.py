@@ -580,6 +580,7 @@ class CoreConf:
 
 
 class Core:
+    """ Core: crossbar and digital unit """
     width: int = 256  #
     xbar_m: typing.Optional[np.ndarray]
     # NB: For now, we just keep objects as np arrays. Eventually, we might want
@@ -721,7 +722,7 @@ class Core:
 
         objstr: object
         results: what we will return when we are done with executing operations
-        wr_is: write inddices
+        wr_is: write indices
         wr_vs: write values
         """
 
