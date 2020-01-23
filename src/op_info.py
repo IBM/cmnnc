@@ -10,7 +10,7 @@ import islpy as isl
 
 import conv
 import pipeline as pl
-from isl_utils import isl_set_from_names
+from isl_utils import isl_set_from_names, isl_set_from_shape
 
 """ Polyhedral information for operations """
 
@@ -197,16 +197,7 @@ def OpInfo_ADD(
     if True:
         # Reconstruct the domain from shape and verify that everyting is in order
         tn = conv_domain.get_tuple_name()
-        xdom = isl_set_from_names(tn, ["oh", "ow"])
-        xineqs = [  # loop bounds, based on shape
-            {1: w - 1, "ow": -1},
-            {1: 0, "ow": 1},
-            {1: h - 1, "oh": -1},
-            {1: 0, "oh": 1},
-        ]
-        for xineq in xineqs:
-            con_ineq = isl.Constraint.ineq_from_names(xdom.space, xineq)
-            xdom = xdom.add_constraint(con_ineq)
+        xdom = isl_set_from_shape(tn, ["oh", "ow"], (h,w))
         # NB: This assertion might eventually fail if we introduce striding or
         # other complications. I just leave it as a sanity check for now.
         assert xdom == conv_domain

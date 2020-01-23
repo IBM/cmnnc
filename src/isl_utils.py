@@ -409,3 +409,20 @@ def isl_set_from_names(
     ).set_tuple_name(isl.dim_type.set, tname)
     ret = isl.Set.universe(space)
     return ret
+
+def isl_set_from_shape(
+    tname: str,
+    names: typing.List[str],
+    shape: typing.Tuple[int,...],
+    ctx = isl.DEFAULT_CONTEXT
+) -> isl.Set:
+    assert len(shape) == len(names)
+    ret = isl_set_from_names(tname, names)
+    ineq_from_names = isl.Constraint.ineq_from_names
+    for (name, dim) in zip(names, shape):
+        for c in (
+            {1: 0, name: 1},
+            {1: dim-1, name: -1},
+        ):
+            ret = ret.add_constraint(ineq_from_names(ret.space, c))
+    return ret
