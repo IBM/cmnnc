@@ -24,8 +24,8 @@ from onnx_util import (
 
 
 def onnx_obj_shapes_reduce_batch(
-    g: onnx.GraphProto
-) -> typing.Tuple[typing.Dict[str, typing.Tuple[int,...]], int]:
+    g: onnx.GraphProto,
+) -> typing.Tuple[typing.Dict[str, typing.Tuple[int, ...]], int]:
     """ Return shapes without the batch size, and batch size seperately
 
     Assumes that all shapes have the same batch size, as the first dimension of

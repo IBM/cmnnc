@@ -179,20 +179,18 @@ def OpInfo_CONV(
 
     return pl.OpInfo("MxV", [RD_a(rd_a), WR_a(wr_a)])
 
+
 def OpInfo_ID(
-    shape: typing.Tuple[int, ...],
-    s_id: str,
-    inp_id: str,
-    out_id: str
+    shape: typing.Tuple[int, ...], s_id: str, inp_id: str, out_id: str
 ) -> OpInfo:
     """ Identity operation """
-    idx_names = ["%s_i%d" % (s_id, i) for (i,_) in enumerate(shape)]
+    idx_names = ["%s_i%d" % (s_id, i) for (i, _) in enumerate(shape)]
     # Create domain for relations
     xdom = isl_set_from_shape(s_id, idx_names, shape)
 
     accesses = []
     for (obj_id, mk_acc) in ((inp_id, RD_a), (out_id, WR_a)):
-        obj_names = ["%s_i%d" % (obj_id, i) for (i,_) in enumerate(shape)]
+        obj_names = ["%s_i%d" % (obj_id, i) for (i, _) in enumerate(shape)]
         rng = isl_set_from_names(obj_id, obj_names)
         rel = isl.Map.from_domain_and_range(xdom, rng)
         for (idx_n, obj_n) in zip(idx_names, obj_names):
@@ -201,6 +199,7 @@ def OpInfo_ID(
             )
         accesses.append(mk_acc(rel))
     return pl.OpInfo("ID", accesses)
+
 
 def OpInfo_ADD(
     conv_domain: isl.Map,
@@ -217,7 +216,7 @@ def OpInfo_ADD(
     if True:
         # Reconstruct the domain from shape and verify that everyting is in order
         tn = conv_domain.get_tuple_name()
-        xdom = isl_set_from_shape(tn, ["oh", "ow"], (h,w))
+        xdom = isl_set_from_shape(tn, ["oh", "ow"], (h, w))
         # NB: This assertion might eventually fail if we introduce striding or
         # other complications. I just leave it as a sanity check for now.
         assert xdom == conv_domain

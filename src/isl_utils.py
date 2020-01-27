@@ -85,7 +85,7 @@ def isl_rel_loc_to_max_iter(s1_wr_a, s2_rd_a):
     O to the maximum iteration in S2 that can be executed given that the observed
     write was performed.
     """
-    #print("WR:%s\n%RD:%s" % (s1_wr_a, s2_rd_a))
+    # print("WR:%s\n%RD:%s" % (s1_wr_a, s2_rd_a))
 
     # First, we compute a relation S2 -> S1, such that o2 (in S2) -> o1 (in
     # S1), iff o2 reads something that is being written by o1.
@@ -401,6 +401,7 @@ def isl2py_fn(node, fn_name):
         decorator_list=[],
     )
 
+
 def isl_set_from_names(
     tname: str,
     names: typing.List[str],
@@ -412,11 +413,12 @@ def isl_set_from_names(
     ret = isl.Set.universe(space)
     return ret
 
+
 def isl_set_from_shape(
     tname: str,
     names: typing.List[str],
-    shape: typing.Tuple[int,...],
-    ctx = isl.DEFAULT_CONTEXT
+    shape: typing.Tuple[int, ...],
+    ctx=isl.DEFAULT_CONTEXT,
 ) -> isl.Set:
     assert len(shape) == len(names)
     ret = isl_set_from_names(tname, names)
@@ -424,7 +426,7 @@ def isl_set_from_shape(
     for (name, dim) in zip(names, shape):
         for c in (
             {1: 0, name: 1},
-            {1: dim-1, name: -1},
+            {1: dim - 1, name: -1},
         ):
             ret = ret.add_constraint(ineq_from_names(ret.space, c))
     return ret

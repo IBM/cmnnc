@@ -29,7 +29,7 @@ import types
 import dataclasses as dc
 import ast as pyast
 import pprint as pp
-from collections import deque,defaultdict
+from collections import deque, defaultdict
 
 import numpy as np
 import astor as pyastor
@@ -46,7 +46,8 @@ from isl_utils import (
     isl_rel_loc_to_max_iter,
     isl_set_from_names,
     isl_set_from_shape,
-    isl_fix_params)
+    isl_fix_params,
+)
 
 
 @dc.dataclass(init=False)
@@ -198,9 +199,10 @@ class StageInfo:
         (p,) = ps
         loc = tuple(
             p.get_coordinate_val(isl.dim_type.all, i).to_python()
-            for i in  range(len(p.get_id_dict()))
+            for i in range(len(p.get_id_dict()))
         )
         return loc
+
 
 def isl_map_to_pyfn(rel, fnname, s=None):
     """ Transform an isl map to a python function """
@@ -605,6 +607,7 @@ class CoreConf:
 
 class Core:
     """ Core: crossbar and digital unit """
+
     width: int = 256  #
     xbar_m: typing.Optional[np.ndarray]
     # NB: For now, we just keep objects as np arrays. Eventually, we might want
@@ -766,7 +769,7 @@ class Core:
             raise RuntimeError("core xbar matrix is undefined")
 
         execute_ops_debug_ = True
-        if ops[0].ty != 'MxV':
+        if ops[0].ty != "MxV":
             print("First operation is not on the crossbar (MxV)")
 
         # Each operation has a predefined number of inputs, but can have an
@@ -900,19 +903,22 @@ class Object:
         """ Is this an internal object? i.e., written and read by the same stage """
         return (self.reader is not None) and (self.reader == self.writer)
 
+
 class PipelineOp:
     """ A pipeline operation described by its input and output buffers """
+
     po_inps: typing.Dict[str, np.ndarray]
     po_outs: typing.Dict[str, np.ndarray]
     po_outs_done: typing.Set[str]
-    po_id: typing.Optional[typing.Any] # can be set by the user
+    po_id: typing.Optional[typing.Any]  # can be set by the user
 
-    def __init__(self,
+    def __init__(
+        self,
         inps: typing.Dict[str, np.ndarray],
         outs: typing.Dict[str, np.ndarray],
         *,
-        completion_fn = None,
-        op_id = None,
+        completion_fn=None,
+        op_id=None,
     ):
         self.po_inps = inps
         self.po_outs = outs
@@ -949,6 +955,7 @@ class PipelineOp:
 #    when the output buffer is done.
 class GCU:
     """ Global control unit """
+
     po_queue: typing.Deque[PipelineOp]
     po_queue_input_done: typing.Deque[PipelineOp]
     input_objs: typing.Set[str]
@@ -973,9 +980,15 @@ class GCU:
         gcu_inp_objs = self.input_objs
         gcu_out_objs = set(self.output_objs.keys())
         if op_inp_objs != gcu_inp_objs:
-            raise ValueError("op inputs (%s) do not match GCU inputs (%s)"  % (op_inp_objs, gcu_inp_objs))
+            raise ValueError(
+                "op inputs (%s) do not match GCU inputs (%s)"
+                % (op_inp_objs, gcu_inp_objs)
+            )
         if op_out_objs != gcu_out_objs:
-            raise ValueError("op outputs (%s) do not match GCU outputs (%s)"  % (op_out_objs, gcu_out_objs))
+            raise ValueError(
+                "op outputs (%s) do not match GCU outputs (%s)"
+                % (op_out_objs, gcu_out_objs)
+            )
 
     def append_op(self, op: PipelineOp):
         self.validate_op(op)
@@ -1068,7 +1081,6 @@ class GCU:
             # enough, this should not be an issue, but it would be good if we
             # good verify it at the ISL level. Otherwise, we can use multiple
             # buffers.
-
 
 
 class Pipeline:

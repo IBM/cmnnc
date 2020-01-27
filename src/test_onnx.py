@@ -84,7 +84,6 @@ def test_onnx_residual_2d():
         obj = pline.get_object(inp_name)
         obj[...] = data
 
-
     # Execute the pipeline
     print_info = False
     for iters in pline.tick_gen():
