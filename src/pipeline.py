@@ -555,7 +555,8 @@ class Stage:
     def write_callback(self, wr_objstr, wr_idx, wr_val):
         """ Write callback executed on the reader
 
-        Execute the "snooping for SRAM writes" logic.
+        Writes the data to the core-local object and executes the "snooping for
+        SRAM writes" logic.
         """
         print("%s: Callback on write: wr_obj:%s wr_idx:%s wr_val:%s"
              % (self.get_name(), wr_objstr, wr_idx, wr_val))
@@ -941,6 +942,41 @@ class PipelineOp:
         else:
             print("OP (id: %s) completed" % (self.po_id,))
 
+class DummyGCU:
+    output_objs: typing.Dict[str, np.ndarray]
+
+    def __init__(self):
+        """ Initialize the dummy GCU """
+        self.output_objs = {}
+
+    def attach_to_pipeline(self, pipeline_write):
+        return None
+
+    def tick_gen(self):
+        return None
+
+    def get_output_object(self, objname):
+        return self.output_objs[objname]
+
+    def init_output_object(self, obj: Object, last_loc: typing.Tuple[int, ...]):
+        assert obj.name not in self.output_objs
+        self.output_objs[obj.name] = np.zeros(obj.info.get_padded_shape())
+
+    def get_input_wr_a(self, obj: Object) -> typing.Optional[isl.Map]:
+        return None
+
+    def write_callback(self, wr_objstr, wr_idx, wr_val):
+        """ Write callback for output data
+
+        """
+        print("%s: Callback on write: wr_obj:%s wr_idx:%s wr_val:%s"
+             % (self.__class__.__name__, wr_objstr, wr_idx, wr_val))
+        # if wr_val exsits, and this is an output object, update value
+        wr_obj = self.output_objs[wr_objstr]
+        assert isinstance(wr_idx, tuple), "wr_idx (%s) not a tuple" % (wr_idx,)
+        assert len(wr_obj.shape) == len(wr_idx), "wr_obj.shape (%s) has different dimensions that index (%s)" % (wr_obj.shape, wr_idx,)
+        if wr_val is not None:
+            wr_obj[wr_idx] = wr_val
 
 # This is a first implementation of a GCU.
 # It manages input and output buffers:
@@ -961,8 +997,10 @@ class GCU:
     input_objs: typing.Set[str]
     output_objs: typing.Dict[str, np.ndarray]
     output_objs_last_loc: typing.Dict[str, typing.Tuple[int, ...]]
+    dummy: bool
 
     def __init__(self):
+        """ Initialize a GCU """
         self.po_queue = deque()
         self.po_queue_input_done = deque()
         self.input_objs = set()
@@ -972,7 +1010,17 @@ class GCU:
         self.output_objs_last_loc = {}
 
     def attach_to_pipeline(self, pipeline_write):
+        """ We use the pipeline_write method to transfer data from the input
+        buffers to the cores """
         self.pipeline_write = pipeline_write
+
+    def init_output_object(self, obj: Object, last_loc: typing.Tuple[int, ...]):
+        assert obj.name not in self.output_objs
+        self.output_objs[obj.name] = np.zeros(obj.info.get_padded_shape())
+        self.output_objs_last_loc[obj.name] = last_loc
+
+    def get_output_object(self, objname):
+        return self.output_objs[objname]
 
     def validate_op(self, op: PipelineOp):
         op_inp_objs = set(op.po_inps.keys())
@@ -994,7 +1042,7 @@ class GCU:
         self.validate_op(op)
         self.po_queue.append(op)
 
-    def get_input_wr_a(self, obj: Object) -> isl.Map:
+    def get_input_wr_a(self, obj: Object) -> typing.Optional[isl.Map]:
         """ Input object WR accesses relation """
         self.input_objs.add(obj.name)
         shape = obj.info.shape
@@ -1017,6 +1065,21 @@ class GCU:
             )
 
         return rel
+
+    def write_callback(self, wr_objstr, wr_idx, wr_val):
+        """ Write callback for output data """
+        print("%s: Callback on write: wr_obj:%s wr_idx:%s wr_val:%s"
+             % (self.__class__.__name__, wr_objstr, wr_idx, wr_val))
+        # if wr_val exsits, and this is an output object, update value
+        wr_obj = self.output_objs[wr_objstr]
+        assert isinstance(wr_idx, tuple), "wr_idx (%s) not a tuple" % (wr_idx,)
+        assert len(wr_obj.shape) == len(wr_idx), "wr_obj.shape (%s) has different dimensions that index (%s)" % (wr_obj.shape, wr_idx,)
+        if wr_val is not None:
+            wr_obj[wr_idx] = wr_val
+        last_wr_idx = self.output_objs_last_loc.get(wr_objstr, None)
+        if wr_idx == last_wr_idx:
+            print("Writing last (%s) index (%s) of object %s" % (last_wr_idx, wr_idx, wr_objstr))
+            self.output_done(wr_objstr)
 
     def output_done(self, objstr: str):
         """ Notification an output for a given operation is finished """
@@ -1090,9 +1153,6 @@ class Pipeline:
     p_stages: typing.Dict[str, Stage]  # stage name -> Stage
     p_gcu: typing.Optional[GCU]
 
-    # Orphan objects are objects without a reader, and they are kept here
-    output_objs: typing.Dict[str, np.ndarray]
-
     def __init__(
         self,
         stages: typing.List[Stage],
@@ -1122,9 +1182,10 @@ class Pipeline:
             st.attach_to_pipeline(self.handle_write, execute_ops)
 
         # initialize GCU
+        if gcu is None:
+            gcu = DummyGCU()
         self.p_gcu = gcu
-        if self.p_gcu is not None:
-            gcu.attach_to_pipeline(self.handle_write)
+        self.p_gcu.attach_to_pipeline(self.handle_write)
 
         # Discover dependencies and build the loc_to_max_iter relation for
         # every writer/reader pair.
@@ -1162,13 +1223,6 @@ class Pipeline:
         # This is a bit awkward, but we do it to allow the pipeline to work
         # without a GCU. In this case, we call set_dont_wait_for_reads() for
         # input objects and set the objects externally.
-        if self.p_gcu is None:
-            self.output_objs = {}
-            self.output_objs_last_loc = {}
-        else:
-            self.output_objs = self.p_gcu.output_objs
-            self.output_objs_last_loc = self.p_gcu.output_objs_last_loc
-
         for obj in self.p_objs.values():
             if obj.is_internal():
                 print("Object %s is internal to %s." % (obj.name, obj.reader))
@@ -1178,22 +1232,24 @@ class Pipeline:
             elif obj.reader is not None:
                 reader_stage = self.p_stages[obj.reader]
                 reader_stage.core.alloc_object(obj.name, obj.info)
-                if obj.writer is None and self.p_gcu is None:
-                    print(
-                        "Object %s read by %s has no writer (and no GCU exists). Assuming it always exists."
-                        % (obj.name, obj.reader)
-                    )
+
+                if obj.writer is not None:
+                    # There is a writer, get the write relation from it
+                    writer_stage = self.p_stages[obj.writer]
+                    wr_a = writer_stage.si.get_obj_wr_rel(obj.name)
+                else:
+                    # There is no writer, try to get the write relation from
+                    # the GCU. Not that this might fail by returning None
+                    # (DummyGCU).
+                    wr_a = self.p_gcu.get_input_wr_a(obj)
+
+                if wr_a is None:
+                    print("Object %s read by %s but written by noone. Assuming it always exists"
+                        % (obj.name, obj.reader))
                     reader_stage.set_dont_wait_for_reads(obj.name)
                 else:
                     print("Object %s written by %s and read by %s"
                         % (obj, obj.writer if obj.writer is not None else "GCU", obj.reader))
-                    if obj.writer is not None:
-                        # object written by a stage
-                        writer_stage = self.p_stages[obj.writer]
-                        wr_a = writer_stage.si.get_obj_wr_rel(obj.name)
-                    else:
-                        # object is an input object (written by GCU)
-                        wr_a = self.p_gcu.get_input_wr_a(obj)
                     rd_a = reader_stage.si.get_obj_rd_rel(obj.name)
                     loc_to_max_iter = isl_rel_loc_to_max_iter(wr_a, rd_a)
                     reader_stage.set_isl_rel_loc_to_max_iter(
@@ -1203,10 +1259,9 @@ class Pipeline:
             elif obj.writer is not None:
                 print("Object %s is an output object: written by %s, but has no readers"
                       % (obj.name, obj.writer))
-                self.output_objs[obj.name] = np.zeros(obj.info.get_padded_shape())
                 writer_stage = self.p_stages[obj.writer]
                 last_loc = writer_stage.si.get_obj_last_loc(obj.name, writer_stage.param_vals)
-                self.output_objs_last_loc[obj.name] = last_loc
+                self.p_gcu.init_output_object(obj, last_loc)
             else:
                 print("WARNING: object %s is not read or written" % (obj.name,))
 
@@ -1220,8 +1275,7 @@ class Pipeline:
             ((s, s.tick_gen(self.loop_inp_limit)) for s in stages)
         )
         # Start the generator for the GCU
-        if self.p_gcu is not None:
-            self.gcu_tick = self.p_gcu.tick_gen()
+        self.gcu_tick = self.p_gcu.tick_gen()
         self.nticks = 0
 
         self.stages = stages
@@ -1254,19 +1308,11 @@ class Pipeline:
         for (wr_objstr, wr_idx, wr_val) in self.writes:
             reader = self.p_objs[wr_objstr].reader
             if reader is not None:
-                # execute callback on the reader
+                # write data on the reader stage
                 self.p_stages[reader].write_callback(wr_objstr, wr_idx, wr_val)
-            elif wr_val is not None and wr_objstr in self.output_objs:
-                # if wr_val exsits, and this is an output object, update value
-                wr_obj = self.output_objs[wr_objstr]
-                assert isinstance(wr_idx, tuple), "wr_idx (%s) not a tuple" % (wr_idx,)
-                assert len(wr_obj.shape) == len(wr_idx), "wr_obj.shape (%s) has different dimensions that index (%s)" % (wr_obj.shape, wr_idx,)
-                wr_obj[wr_idx] = wr_val
-                if self.p_gcu is not None:
-                    last_wr_idx = self.output_objs_last_loc.get(wr_objstr, None)
-                    if wr_idx == last_wr_idx:
-                        print("Writing last (%s) index (%s) of object %s" % (last_wr_idx, wr_idx, wr_objstr))
-                        self.p_gcu.output_done(wr_objstr)
+            else:
+                # write data on GCU
+                self.p_gcu.write_callback(wr_objstr, wr_idx, wr_val)
 
         self.writes = []
 
@@ -1279,10 +1325,11 @@ class Pipeline:
         elif reader is not None:
             stage = self.p_stages[reader]
             return stage.core.get_object(objstr)
-        elif objstr in self.output_objs:
-            return self.output_objs[objstr]
         else:
-            raise ValueError("Could not found object %s" % (objstr,))
+            try:
+                return self.p_gcu.get_output_object(objstr)
+            except KeyError:
+                raise ValueError("Could not found object %s" % (objstr,))
 
     def tick(self):
         s = "TICK: %d" % (self.nticks,)
@@ -1294,7 +1341,7 @@ class Pipeline:
         if len(stage_keys) == 0:
             raise StopIteration("No available stages to execute")
 
-        if self.p_gcu is not None:
+        if self.gcu_tick is not None:
             next(self.gcu_tick)
 
         for s in stage_keys:
