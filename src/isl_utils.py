@@ -14,10 +14,12 @@ import islpy as isl
 # import astor as pyastor
 # from astpp import parseprint, dump as astpp_dump
 
+# TODO: add an isl prefix to all functions (that do not have one)
+
 ## ISL Helpers
 
 
-def fix_params(x, vals):
+def isl_fix_params(x, vals):
     """ Fix the value of the parameters in @x according to the @vals dict.
 
     Return result
@@ -83,6 +85,7 @@ def isl_rel_loc_to_max_iter(s1_wr_a, s2_rd_a):
     O to the maximum iteration in S2 that can be executed given that the observed
     write was performed.
     """
+    #print("WR:%s\n%RD:%s" % (s1_wr_a, s2_rd_a))
 
     # First, we compute a relation S2 -> S1, such that o2 (in S2) -> o1 (in
     # S1), iff o2 reads something that is being written by o1.
@@ -397,7 +400,6 @@ def isl2py_fn(node, fn_name):
         body=isl2py_ast(node),
         decorator_list=[],
     )
-
 
 def isl_set_from_names(
     tname: str,

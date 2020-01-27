@@ -306,7 +306,6 @@ class OnnxGraph:
     def get_core_conf(self, pid) -> pl.CoreConf:
         return self.partitions[pid].core_conf
 
-
     def get_pipeline(self) -> pl.Pipeline:
         """ Return a (configured) pipeline using this graph """
         vals = {}

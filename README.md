@@ -1,6 +1,8 @@
 # cmnnc
 
-We use `virtualenv` for installing python dependencies:
+## Installation
+
+We use `virtualenv` to install python dependencies:
 
 ```
 $ virtualenv -p python3 cmenv

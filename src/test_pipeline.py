@@ -15,7 +15,7 @@ import islpy as isl
 import pipeline as pl
 from util import xparams, xdict
 import conv
-from op_info import OpInfo_CONV
+from op_info import OpInfo_CONV, OpInfo_ID
 from object_info import ObjectInfo
 
 RD_a = pl.IslAccess.RD
@@ -487,14 +487,60 @@ def test_residual_1d():
     o1 = conv.conv1d_simple(image, filters1, conv1_ps)
     o2 = np.copy(o1)
     o1 = np.pad(o1, conv2_ps.get_input_padding())
-    np.testing.assert_allclose(o1[0, :], pline_o1, err_msg="O1 does not match")
+    np.testing.assert_allclose(
+        o1[0, :], pline_o1,
+        err_msg="O1 does not match"
+    )
     o3 = conv.conv1d_simple(o1, filters2, conv2_ps)
     out = o3 + o2
-    np.testing.assert_allclose(o3[0, :], pline_o3, err_msg="O3 does not match")
     np.testing.assert_allclose(
-        out[0, :], pline_out, err_msg="OUT does not match"
+        o3[0, :], pline_o3,
+        err_msg="O3 does not match")
+    np.testing.assert_allclose(
+        out[0, :], pline_out,
+        err_msg="OUT does not match"
     )
 
+
+def test_gcu():
+    shape = (2,2,4)
+    objs_info = {
+        "I" : ObjectInfo(shape=shape),
+        "O" : ObjectInfo(shape=shape),
+    }
+
+    inp = np.random.rand(*shape)
+    out = np.zeros(shape)
+
+    gcu = pl.GCU()
+    s_ops = [ OpInfo_ID(shape, s_id="S", inp_id="I", out_id="O"), ]
+    s = pl.Stage(pl.StageInfo(s_ops))
+    pline = pl.Pipeline([s], objs_info, gcu, execute_ops=1, loop_inp_limit=1)
+
+    class Verifier:
+        def __init__(self):
+            self.verified = False
+
+        def verify_fn(self, xop):
+            np.testing.assert_allclose(
+                xop.po_inps["I"], xop.po_outs["O"],
+                err_msg="I does not match O for ID operation"
+            )
+            self.verified = True
+
+    v = Verifier()
+    op = pl.PipelineOp({'I': inp}, {'O': out}, completion_fn = v.verify_fn)
+
+
+    pline.configure([pl.CoreConf(np.zeros((1,1)))])
+    pline.tick()
+    pline.append_op(op)
+
+    try:
+        while True:
+            pline.tick()
+    except StopIteration:
+        assert v.verified
 
 if __name__ == "__main__":
     # test_mxv()
@@ -503,4 +549,5 @@ if __name__ == "__main__":
     # test_conv2d()
     # test_conv2d_conv2d()
     # test_residual_1d()
+    # test_gcu()
     pass

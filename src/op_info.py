@@ -28,9 +28,7 @@ class IslAccess:
 
     def __init__(self, ty: str, acc: typing.Union[str, isl.Map]):
         if ty not in ("RD", "WR"):
-            raise ValueError(
-                "Invalid access type: %s. Expecting 'RD' or 'WR'" % (ty,)
-            )
+            raise ValueError("Invalid access type: %s. Expecting 'RD' or 'WR'" % (ty,))
 
         if isinstance(acc, str):
             try:
@@ -77,7 +75,7 @@ class OpInfo:
 
     Object accesses for a given operation
 
-    NB: Each IslAccess is per-object, ie., is a single isl.Map for every object.
+    NB: Each IslAccess is per-object, i.e., is a single isl.Map for every object.
     Alternatively, we could use a single isl.UnionMap, but the latter seems
     more complicated.
     """
@@ -181,6 +179,28 @@ def OpInfo_CONV(
 
     return pl.OpInfo("MxV", [RD_a(rd_a), WR_a(wr_a)])
 
+def OpInfo_ID(
+    shape: typing.Tuple[int, ...],
+    s_id: str,
+    inp_id: str,
+    out_id: str
+) -> OpInfo:
+    """ Identity operation """
+    idx_names = ["%s_i%d" % (s_id, i) for (i,_) in enumerate(shape)]
+    # Create domain for relations
+    xdom = isl_set_from_shape(s_id, idx_names, shape)
+
+    accesses = []
+    for (obj_id, mk_acc) in ((inp_id, RD_a), (out_id, WR_a)):
+        obj_names = ["%s_i%d" % (obj_id, i) for (i,_) in enumerate(shape)]
+        rng = isl_set_from_names(obj_id, obj_names)
+        rel = isl.Map.from_domain_and_range(xdom, rng)
+        for (idx_n, obj_n) in zip(idx_names, obj_names):
+            rel = rel.add_constraint(
+                isl.Constraint.eq_from_names(rel.space, {idx_n: 1, obj_n: -1})
+            )
+        accesses.append(mk_acc(rel))
+    return pl.OpInfo("ID", accesses)
 
 def OpInfo_ADD(
     conv_domain: isl.Map,
