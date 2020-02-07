@@ -7,7 +7,7 @@ We use `virtualenv` to install python dependencies:
 ```
 $ virtualenv -p python3 cmenv
 $ source cmenv/bin/activate
-$ pip install islpy astor onnxruntime numpy onnx pytest
+$ pip install islpy astor onnxruntime numpy onnx pytest z3-solver graphviz
 ```
 
 Note: you might have to install `libpython3.x-dev` or the equivalent package to
