@@ -6,8 +6,8 @@
 
 """ Misc utilities """
 
-import typeguard
 import typing
+import typeguard
 
 
 class xdict(dict):

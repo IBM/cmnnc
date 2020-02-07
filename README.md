@@ -1,4 +1,4 @@
-# cmnnc
+# Computational Memory Neural Network Compiler (cmnnc)
 
 ## Installation
 

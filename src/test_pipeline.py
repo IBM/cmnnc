@@ -15,11 +15,11 @@ import islpy as isl
 import pipeline as pl
 from util import xparams, xdict
 import conv
-from op_info import OpInfo_CONV, OpInfo_ID
+from op_info import OpInfo_CONV, OpInfo_ID, IslAccess
 from object_info import ObjectInfo
 
-RD_a = pl.IslAccess.RD
-WR_a = pl.IslAccess.WR
+RD_a = IslAccess.RD
+WR_a = IslAccess.WR
 
 
 def test_mxv():

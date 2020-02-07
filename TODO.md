@@ -15,6 +15,7 @@ CONV ---> CONV ---> ADD
 onnx graph
    ✓ execute it using onnxruntime
    ✓ execute it on the simulator
+   - use a batch size which is not 1
 
 # Steps
  ✓ move weights into initializer for generated onnx models
