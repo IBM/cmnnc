@@ -1,5 +1,8 @@
 # Computational Memory Neural Network Compiler (cmnnc)
 
+See [our paper](https://arxiv.org/abs/2003.04293) and our [blog post](https://kkourt.io/blog/2020/04-26-cmnnc.html)
+for more info.
+
 ## Installation
 
 We use `virtualenv` to install python dependencies:
