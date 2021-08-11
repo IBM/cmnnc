@@ -197,6 +197,17 @@ def conv2d_simple(image, filters, conv_params):
 
 
 def conv2d_mxv(image, filters, conv_params):
+    """ Perform a CONV (2D) operation using MxV """
+
+    assert image.shape == conv_params.get_input_shape(pad=True), (
+        "image.shape=%s different than conv_params.get_input_shape(pad=True):%s"
+        % (image.shape, conv_params.get_input_shape(pad=True))
+    )
+    assert filters.shape == conv_params.get_filters_shape(), (
+        "filters.shape=%s different than conv_params.get_filters_shape():%s"
+        % (image.shape, conv_params.get_filters_shape())
+    )
+
     # reshape the filters so that we can use MxV
     filters_m = filters.reshape(conv_params.eval("(f.l, f.d*f.h*f.w)"))
     output_shape = conv_params.get_output_shape()

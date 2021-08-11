@@ -94,7 +94,7 @@ def isl_rel_loc_to_max_iter(s1_wr_a, s2_rd_a):
     # We keep the maximum element, ie, the (lexigraphically) last instance
     # (iteration point) of o2 that need to be executed before each o1.
     # (This is probably not needed given what we do next)
-    ret = ret.lexmax()
+    # ret = ret.lexmax()
 
     # Now in theory we could have:
     # 0 -> 2

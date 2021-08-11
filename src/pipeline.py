@@ -29,14 +29,14 @@ import types
 import dataclasses as dc
 import ast as pyast
 import pprint as pp
-from collections import deque, defaultdict
+from collections import deque
 
 import numpy as np
 import astor as pyastor
 
 import islpy as isl
 
-from op_info import OpInfo, IslAccess
+from op_info import OpInfo
 from object_info import ObjectInfo
 from pyast_utils import StructureTupleYields
 from util import check_class_hints
@@ -82,10 +82,9 @@ class StageInfo:
         if len(ops) == 0:
             raise ValueError("No operations provided (length is 0)")
         if ops[0].op_ty != "MxV":
-            print(
-            #raise ValueError(
-                "First operation is not MxV (instead is:%s)" % (ops[0].op_ty)
-            )
+            # NB: This used to throw a RuntimeError, but there is at least one
+            # test currently that uses a sinlge ID operation (no MxV)
+            print("First operation is not MxV (instead is:%s)" % (ops[0].op_ty))
         self.ops = ops
 
         # all operations must have the same stage, and the same domain
@@ -105,20 +104,18 @@ class StageInfo:
             for acc in op.accesses:
                 objname = acc.get_obj_name()
                 if acc.a_ty == "RD":
-                    if (
-                        objname in self.wo_objs
-                    ):  # Object was previously written, no read. Move it to rw
+                    if objname in self.wo_objs:
+                        # Object was previously written, no read. Move it to rw
                         self.wo_objs.remove(objname)
                         self.rw_objs.add(objname)
-                    elif (
-                        objname in self.ro_objs
-                    ):  # Object was previously read, do nothing
+                    elif objname in self.ro_objs:
+                        # Object was previously read, do nothing
                         pass
-                    elif (
-                        objname in self.rw_objs
-                    ):  # Object was previously written and read, do nothing
+                    elif objname in self.rw_objs:
+                        # Object was previously written and read, do nothing
                         pass
-                    else:  # First time seeing this object, put it into ro set
+                    else:
+                        # First time seeing this object, put it into ro set
                         self.ro_objs.add(objname)
                 elif acc.a_ty == "WR":
                     if objname in self.wo_objs:
@@ -318,7 +315,7 @@ class AccessIterator:
 
     def loop(
         self, inp_limit: typing.Optional[int] = None
-    ) -> typing.Iterator[typing.List[ExecOp]]:
+    ) -> typing.Iterator[typing.Tuple[typing.Tuple[int, ...], typing.List[ExecOp]]]:
         for inp in itertools.count():
             if inp_limit is not None and inp >= inp_limit:
                 break
@@ -671,7 +668,7 @@ class Core:
     def get_internal_object(self, objname: str):
         return self.internal_objs[objname]
 
-    def validate_ops(self, ops: ExecOp):
+    def validate_ops(self, ops: typing.List[ExecOp]):
         """ Valdidate operations
 
         Ensure that the reads are within the array bounds.
@@ -764,7 +761,7 @@ class Core:
             assert objstr not in results
             results[objstr] = zip(wr_is, wr_vs)
 
-    def execute_ops(self, ops: ExecOp) -> typing.Dict[str, np.ndarray]:
+    def execute_ops(self, ops: typing.List[ExecOp]) -> typing.Dict[str, np.ndarray]:
         """ Execute operations """
         if self.xbar_m is None:
             raise RuntimeError("core xbar matrix is undefined")
@@ -978,6 +975,9 @@ class DummyGCU:
         if wr_val is not None:
             wr_obj[wr_idx] = wr_val
 
+    def append_op(self, op: PipelineOp):
+        raise TypeError("DummyGCU does not support append_op")
+
 # This is a first implementation of a GCU.
 # It manages input and output buffers:
 #   - sends data from the input buffers to cores
@@ -1151,7 +1151,7 @@ class Pipeline:
 
     p_objs: typing.Dict[str, Object]  # object name -> Object
     p_stages: typing.Dict[str, Stage]  # stage name -> Stage
-    p_gcu: typing.Optional[GCU]
+    p_gcu: typing.Union[GCU,DummyGCU]
 
     def __init__(
         self,
@@ -1182,9 +1182,7 @@ class Pipeline:
             st.attach_to_pipeline(self.handle_write, execute_ops)
 
         # initialize GCU
-        if gcu is None:
-            gcu = DummyGCU()
-        self.p_gcu = gcu
+        self.p_gcu = gcu if gcu is not None else DummyGCU()
         self.p_gcu.attach_to_pipeline(self.handle_write)
 
         # Discover dependencies and build the loc_to_max_iter relation for
